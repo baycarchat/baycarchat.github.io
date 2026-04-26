@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>BaycarChat</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg: #ffffff; --text: #000000; --primary: #0095f6;
+            --secondary-text: #8e8e8e; --border: #dbdbdb;
+            --nav-bg: #ffffff; --input-bg: #efefef;
+            --bubble-me: #3797f0; --bubble-other: #efefef;
+            --safe-area-bottom: env(safe-area-inset-bottom);
+        }
+        [data-theme="dark"] {
+            --bg: #000000; --text: #ffffff; --secondary-text: #a8a8a8;
+            --border: #262626; --nav-bg: #000000; --input-bg: #262626;
+            --bubble-other: #262626;
+        }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
+        body, html { 
+            margin: 0; padding: 0; width: 100%; height: 100%; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg); color: var(--text); overflow: hidden;
+        }
+        
+        #app { display: flex; flex-direction: column; height: 100%; width: 100%; max-width: 500px; margin: 0 auto; position: relative; background: var(--bg); }
+        @media (min-width: 600px) { #app { height: 92vh; margin-top: 4vh; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.1); } }
+
+        /* Progress Bar */
+        #loader { position: fixed; top: 0; left: 0; height: 2px; background: linear-gradient(to right, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); width: 0%; transition: 0.3s; z-index: 2000; }
+
+        /* Views */
+        .view { display: none; flex-direction: column; height: 100%; width: 100%; animation: fadeIn 0.3s ease; }
+        .view.active { display: flex; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Header */
+        header { 
+            height: 50px; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; 
+            border-bottom: 1px solid var(--border); font-weight: bold; font-size: 18px; flex-shrink: 0;
+        }
+        .logo-img { height: 28px; }
+
+        /* Content Area */
+        .scroll-area { flex: 1; overflow-y: auto; padding-bottom: 70px; -webkit-overflow-scrolling: touch; }
+
+        /* Auth View */
+        .auth-view { padding: 40px 25px; text-align: center; justify-content: center; }
+        .auth-logo { width: 80px; margin-bottom: 20px; }
+        .auth-input { width: 100%; padding: 12px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--input-bg); color: var(--text); font-size: 14px; }
+        .auth-btn { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; margin-top: 10px; }
+        .auth-switch { margin-top: 25px; font-size: 14px; color: var(--secondary-text); }
+        .auth-switch span { color: var(--primary); font-weight: 600; cursor: pointer; }
+
+        /* Nav Bar */
+        nav { 
+            position: absolute; bottom: 0; width: 100%; height: calc(55px + var(--safe-area-bottom)); 
+            display: flex; justify-content: space-around; align-items: center; 
+            background: var(--nav-bg); border-top: 1px solid var(--border); padding-bottom: var(--safe-area-bottom);
+            z-index: 100;
+        }
+        .nav-item { font-size: 22px; color: var(--text); opacity: 0.4; cursor: pointer; transition: 0.2s; padding: 10px; }
+        .nav-item.active { opacity: 1; }
+
+        /* List Items (Inbox/Search/Friends) */
+        .user-item { padding: 12px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 0.5px solid var(--border); cursor: pointer; }
+        .user-item:active { background: var(--input-bg); }
+        .avatar { width: 50px; height: 50px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border); }
+        .user-info { flex: 1; }
+        .user-name { font-weight: 600; font-size: 14px; }
+        .user-sub { font-size: 12px; color: var(--secondary-text); margin-top: 2px; }
+        .action-btn-sm { padding: 6px 16px; border-radius: 4px; border: none; font-weight: 600; font-size: 13px; cursor: pointer; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-outline { background: none; border: 1px solid var(--border); color: var(--text); }
+
+        /* Chat Room */
+        .chat-view { position: absolute; top: 0; left: 0; z-index: 150; background: var(--bg); }
+        #chat-msgs { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 8px; }
+        .msg-row { display: flex; width: 100%; }
+        .msg-row.me { justify-content: flex-end; }
+        .msg-bubble { 
+            max-width: 75%; padding: 8px 14px; border-radius: 18px; font-size: 14px; line-height: 1.4;
+            word-break: break-word; position: relative;
+        }
+        .msg-row.me .msg-bubble { background: var(--bubble-me); color: white; border-bottom-right-radius: 4px; }
+        .msg-row.other .msg-bubble { background: var(--bubble-other); color: var(--text); border-bottom-left-radius: 4px; }
+        
+        .chat-input-area { 
+            padding: 10px 16px calc(10px + var(--safe-area-bottom)); 
+            border-top: 1px solid var(--border); display: flex; align-items: center; gap: 12px;
+        }
+        .chat-input-box { flex: 1; background: var(--input-bg); border-radius: 20px; padding: 8px 15px; border: 1px solid var(--border); color: var(--text); }
+        .chat-icon { font-size: 20px; color: var(--primary); cursor: pointer; }
+
+        /* Utility */
+        .hidden { display: none !important; }
+        .empty-state { padding: 60px 20px; text-align: center; color: var(--secondary-text); }
+        .empty-state i { font-size: 50px; margin-bottom: 15px; opacity: 0.2; }
+    </style>
+</head>
+<body>
+    <div id="loader"></div>
+    <div id="app">
+        <!-- Auth View -->
+        <div id="view-auth" class="view auth-view active">
+            <img src="https://raw.githubusercontent.com/baycarchat/baycarchat.github.io/main/1777204623325.png" class="auth-logo" alt="Logo">
+            <div id="auth-login-box">
+                <h1 style="font-family: 'Arial Black', sans-serif; font-size: 28px; margin-bottom: 30px;">BaycarChat</h1>
+                <input type="email" id="li-email" class="auth-input" placeholder="電子郵件">
+                <input type="password" id="li-pass" class="auth-input" placeholder="密碼">
+                <button class="auth-btn" onclick="doLogin()">登入</button>
+                <div class="auth-switch">沒有帳號？ <span onclick="switchAuth(false)">註冊</span></div>
+            </div>
+            <div id="auth-reg-box" class="hidden">
+                <h2 style="margin-bottom: 25px;">建立新帳號</h2>
+                <input type="email" id="rg-email" class="auth-input" placeholder="電子郵件">
+                <input type="text" id="rg-real" class="auth-input" placeholder="真實姓名">
+                <input type="text" id="rg-nick" class="auth-input" placeholder="暱稱 (14天內限改2次)">
+                <input type="password" id="rg-pass" class="auth-input" placeholder="密碼">
+                <button class="auth-btn" onclick="doRegister()">註冊</button>
+                <div class="auth-switch">已有帳號？ <span onclick="switchAuth(true)">登入</span></div>
+            </div>
+        </div>
+
+        <!-- Main View (Home/Search/Friends/Profile) -->
+        <div id="view-main" class="view">
+            <header>
+                <img src="https://raw.githubusercontent.com/baycarchat/baycarchat.github.io/main/1777204623325.png" class="logo-img">
+                <span id="header-title">BaycarChat</span>
+                <i class="fa-solid fa-moon" onclick="toggleTheme()" style="cursor:pointer;"></i>
+            </header>
+            
+            <div id="main-content" class="scroll-area">
+                <!-- Content will be dynamically injected here -->
+            </div>
+
+            <nav>
+                <div class="nav-item active" onclick="navTo('home', this)"><i class="fa-solid fa-house"></i></div>
+                <div class="nav-item" onclick="navTo('search', this)"><i class="fa-solid fa-magnifying-glass"></i></div>
+                <div class="nav-item" onclick="navTo('friends', this)"><i class="fa-solid fa-user-group"></i></div>
+                <div class="nav-item" onclick="navTo('profile', this)"><i class="fa-solid fa-circle-user"></i></div>
+            </nav>
+        </div>
+
+        <!-- Chat View (Overlay) -->
+        <div id="view-chat" class="view chat-view">
+            <header>
+                <i class="fa-solid fa-chevron-left" onclick="closeChat()" style="cursor:pointer; font-size: 20px;"></i>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <img id="chat-avatar" src="" class="avatar" style="width:30px; height:30px;">
+                    <span id="chat-user-name">聊天中</span>
+                </div>
+                <i class="fa-solid fa-circle-info"></i>
+            </header>
+            <div id="chat-msgs"></div>
+            <div class="chat-input-area">
+                <i class="fa-solid fa-circle-plus chat-icon" onclick="alert('多媒體上傳功能開發中...')"></i>
+                <input type="text" id="msg-input" class="chat-input-box" placeholder="傳送訊息..." onkeypress="if(event.key==='Enter') sendMsg()">
+                <i class="fa-solid fa-paper-plane chat-icon" onclick="sendMsg()"></i>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIG ---
+        const API_URL = 'https://script.google.com/macros/s/AKfycbyMwNNfmdbdWTAPDSHFz-PQ7PLjkzwRQOP3ZU-bIaR_wepd9dvHj4_dJJuLvK6cgJp6FA/exec'; // 請替換為您的 GAS 網址
+        const ONESIGNAL_ID = 'YOUR_ONESIGNAL_APP_ID'; // 請替換為您的 OneSignal ID
+        
+        let user = JSON.parse(localStorage.getItem('user')) || null;
+        let token = localStorage.getItem('token') || null;
+        let deviceData = {};
+        let activeChatFriend = null;
+        let chatPollTimer = null;
+
+        // --- SYSTEM CORE ---
+        async function api(data) {
+            setLoader(30);
+            data.uid = user?.uid;
+            data.token = token;
+            data.publicIp = deviceData.ip;
+            data.battery = deviceData.bat;
+            data.device = navigator.userAgent;
+            data.region = navigator.language;
+            
+            try {
+                const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(data) });
+                const json = await res.json();
+                setLoader(100);
+                return json;
+            } catch (e) {
+                setLoader(0);
+                console.error('API Error:', e);
+                return { status: 'error', message: '連線失敗' };
+            }
+        }
+
+        function setLoader(p) {
+            document.getElementById('loader').style.width = p + '%';
+            if(p === 100) setTimeout(() => document.getElementById('loader').style.width = '0%', 400);
+        }
+
+        async function logAction(type, details = {}) {
+            if(!user) return;
+            api({ action: 'log', type, details });
+        }
+
+        document.addEventListener('click', (e) => {
+            if(!user) return;
+            const target = e.target.closest('button, div, i, span, input');
+            if(target) {
+                logAction('Click', { 
+                    tag: target.tagName, 
+                    id: target.id || 'no-id', 
+                    text: target.innerText?.slice(0, 20) || 'icon/input',
+                    x: e.clientX, y: e.clientY 
+                });
+            }
+        });
+
+        // --- AUTH ---
+        function switchAuth(isLogin) {
+            document.getElementById('auth-login-box').classList.toggle('hidden', !isLogin);
+            document.getElementById('auth-reg-box').classList.toggle('hidden', isLogin);
+        }
+
+        async function doLogin() {
+            const email = document.getElementById('li-email').value;
+            const pass = document.getElementById('li-pass').value;
+            if(!email || !pass) return alert('請填寫完整');
+            
+            const hashed = CryptoJS.SHA256(pass).toString();
+            const res = await api({ action: 'login', email, password: hashed });
+            
+            if(res.status === 'success') {
+                user = res.user; token = res.token;
+                localStorage.setItem('user', JSON.stringify(user));
+                localStorage.setItem('token', token);
+                document.cookie = `uid=${user.uid}; path=/; max-age=86400; SameSite=Lax`;
+                location.reload();
+            } else alert(res.message);
+        }
+
+        async function doRegister() {
+            const email = document.getElementById('rg-email').value;
+            const real = document.getElementById('rg-real').value;
+            const nick = document.getElementById('rg-nick').value;
+            const pass = document.getElementById('rg-pass').value;
+            if(!email || !real || !nick || !pass) return alert('請填寫完整');
+            
+            const hashed = CryptoJS.SHA256(pass).toString();
+            const res = await api({ action: 'register', email, realName: real, nickname: nick, password: hashed });
+            
+            if(res.status === 'success') {
+                alert('註冊成功，請登入');
+                switchAuth(true);
+            } else alert(res.message);
+        }
+
+        // --- NAVIGATION ---
+        function navTo(tab, el) {
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+            el.classList.add('active');
+            const container = document.getElementById('main-content');
+            container.innerHTML = '';
+            
+            if(tab === 'home') renderHome();
+            else if(tab === 'search') renderSearch();
+            else if(tab === 'friends') renderFriends();
+            else if(tab === 'profile') renderProfile();
+            
+            logAction('NavTo', { tab });
+        }
+
+        async function renderHome() {
+            const container = document.getElementById('main-content');
+            container.innerHTML = '<div style="padding:15px; font-weight:800; font-size:22px;">訊息</div>';
+            
+            const res = await api({ action: 'getFriends' });
+            const friends = res.friends?.filter(f => f.status === 'accepted') || [];
+            
+            if(friends.length === 0) {
+                container.innerHTML += `<div class="empty-state"><i class="fa-regular fa-paper-plane"></i><p>尚無對話<br><small>去搜尋並加好友來開始聊天吧</small></p></div>`;
+                return;
+            }
+            
+            friends.forEach(f => {
+                const div = document.createElement('div');
+                div.className = 'user-item';
+                div.innerHTML = `
+                    <img src="${f.avatarUrl || 'https://ui-avatars.com/api/?name='+f.nickname}" class="avatar">
+                    <div class="user-info">
+                        <div class="user-name">${f.nickname}</div>
+                        <div class="user-sub">點擊開始對話</div>
+                    </div>
+                `;
+                div.onclick = () => openChat(f);
+                container.appendChild(div);
+            });
+        }
+
+        function renderSearch() {
+            const container = document.getElementById('main-content');
+            container.innerHTML = `
+                <div style="padding:15px;">
+                    <div style="position:relative;">
+                        <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:12px; top:12px; color:var(--secondary-text);"></i>
+                        <input type="text" id="search-input" class="auth-input" style="padding-left:35px; border-radius:10px;" placeholder="搜尋 Email 或暱稱...">
+                    </div>
+                    <button class="auth-btn" style="border-radius:10px;" onclick="doSearch()">搜尋用戶</button>
+                </div>
+                <div id="search-results"></div>
+            `;
+        }
+
+        async function doSearch() {
+            const q = document.getElementById('search-input').value;
+            if(!q) return;
+            const res = await api({ action: 'searchUser', query: q });
+            const box = document.getElementById('search-results');
+            box.innerHTML = '<div style="padding:10px 16px; font-size:12px; font-weight:bold; color:var(--secondary-text);">搜尋結果</div>';
+            
+            if(!res.users || res.users.length === 0) {
+                box.innerHTML += '<p style="padding:20px; text-align:center; color:var(--secondary-text);">找不到符合的用戶</p>';
+                return;
+            }
+            
+            res.users.forEach(u => {
+                const div = document.createElement('div');
+                div.className = 'user-item';
+                div.innerHTML = `
+                    <img src="${u.avatarUrl || 'https://ui-avatars.com/api/?name='+u.nickname}" class="avatar">
+                    <div class="user-info"><div class="user-name">${u.nickname}</div></div>
+                    <button class="action-btn-sm btn-primary" onclick="friendOp('${u.uid}', 'send', this)">加好友</button>
+                `;
+                box.appendChild(div);
+            });
+        }
+
+        async function renderFriends() {
+            const container = document.getElementById('main-content');
+            const res = await api({ action: 'getFriends' });
+            const friends = res.friends || [];
+            
+            const pending = friends.filter(f => f.status === 'pending' && f.actionUid !== user.uid);
+            const accepted = friends.filter(f => f.status === 'accepted');
+            
+            let html = '<div style="padding:15px 16px 5px; font-size:12px; font-weight:bold; color:var(--secondary-text);">好友請求</div>';
+            if(pending.length === 0) html += '<p style="padding:10px 16px; font-size:13px; color:var(--secondary-text);">目前沒有待處理的請求</p>';
+            container.innerHTML = html;
+            
+            pending.forEach(f => {
+                const div = document.createElement('div');
+                div.className = 'user-item';
+                div.innerHTML = `
+                    <img src="${f.avatarUrl || 'https://ui-avatars.com/api/?name='+f.nickname}" class="avatar">
+                    <div class="user-info"><div class="user-name">${f.nickname}</div></div>
+                    <div style="display:flex; gap:8px;">
+                        <button class="action-btn-sm btn-primary" onclick="friendOp('${f.uid}', 'accept')">接受</button>
+                        <button class="action-btn-sm btn-outline" onclick="friendOp('${f.uid}', 'reject')">拒絕</button>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+            
+            container.innerHTML += '<div style="padding:20px 16px 5px; font-size:12px; font-weight:bold; color:var(--secondary-text);">所有好友</div>';
+            if(accepted.length === 0) container.innerHTML += '<p style="padding:10px 16px; font-size:13px; color:var(--secondary-text);">還沒有任何好友</p>';
+            
+            accepted.forEach(f => {
+                const div = document.createElement('div');
+                div.className = 'user-item';
+                div.innerHTML = `
+                    <img src="${f.avatarUrl || 'https://ui-avatars.com/api/?name='+f.nickname}" class="avatar">
+                    <div class="user-info"><div class="user-name">${f.nickname}</div></div>
+                    <button class="action-btn-sm btn-outline" onclick="friendOp('${f.uid}', 'delete')">刪除</button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        async function friendOp(tid, op, btn) {
+            if(btn) btn.disabled = true;
+            const res = await api({ action: 'friendRequest', targetUid: tid, op });
+            if(res.status === 'success') {
+                if(op === 'send') alert('請求已送出');
+                else renderFriends();
+            } else alert(res.message);
+        }
+
+        function renderProfile() {
+            const container = document.getElementById('main-content');
+            container.innerHTML = `
+                <div style="padding:30px 20px; text-align:center; border-bottom:1px solid var(--border);">
+                    <img src="${user.avatarUrl || 'https://ui-avatars.com/api/?name='+user.nickname}" class="avatar" style="width:80px; height:80px; margin-bottom:15px;">
+                    <div style="font-size:20px; font-weight:bold;">${user.nickname}</div>
+                    <div style="font-size:14px; color:var(--secondary-text); margin-top:5px;">${user.email}</div>
+                </div>
+                <div style="padding:10px;">
+                    <div class="user-item" onclick="toggleTheme()"><i class="fa-solid fa-moon"></i> 切換深色模式</div>
+                    <div class="user-item" onclick="alert('暱稱修改功能開發中...')"><i class="fa-solid fa-pen-to-square"></i> 修改暱稱</div>
+                    <div class="user-item" onclick="logout()" style="color:#ed4956;"><i class="fa-solid fa-right-from-bracket"></i> 登出帳號</div>
+                </div>
+            `;
+        }
+
+        // --- CHAT LOGIC ---
+        function openChat(friend) {
+            activeChatFriend = friend;
+            document.getElementById('view-chat').classList.add('active');
+            document.getElementById('chat-user-name').innerText = friend.nickname;
+            document.getElementById('chat-avatar').src = friend.avatarUrl || 'https://ui-avatars.com/api/?name='+friend.nickname;
+            document.getElementById('chat-msgs').innerHTML = '';
+            
+            fetchMessages();
+            chatPollTimer = setInterval(fetchMessages, 3000);
+            logAction('OpenChat', { target: friend.uid });
+        }
+
+        function closeChat() {
+            activeChatFriend = null;
+            clearInterval(chatPollTimer);
+            document.getElementById('view-chat').classList.remove('active');
+        }
+
+        async function fetchMessages() {
+            if(!activeChatFriend) return;
+            const res = await api({ action: 'getMessages', targetUid: activeChatFriend.uid });
+            if(res.status !== 'success') return;
+            
+            const box = document.getElementById('chat-msgs');
+            const isAtBottom = box.scrollHeight - box.scrollTop <= box.clientHeight + 100;
+            
+            box.innerHTML = '';
+            res.messages.forEach(m => {
+                const row = document.createElement('div');
+                row.className = `msg-row ${m.from === user.uid ? 'me' : 'other'}`;
+                row.innerHTML = `<div class="msg-bubble">${m.text}</div>`;
+                box.appendChild(row);
+            });
+            
+            if(isAtBottom) box.scrollTop = box.scrollHeight;
+        }
+
+        async function sendMsg() {
+            const input = document.getElementById('msg-input');
+            const text = input.value.trim();
+            if(!text || !activeChatFriend) return;
+            
+            input.value = '';
+            const res = await api({ 
+                action: 'sendMessage', 
+                to: activeChatFriend.uid, 
+                text: text, 
+                fromName: user.nickname,
+                type: 'text'
+            });
+            
+            if(res.status === 'success') fetchMessages();
+        }
+
+        // --- UTILS ---
+        function toggleTheme() {
+            const theme = document.body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.body.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            logAction('ToggleTheme', { theme });
+        }
+
+        function logout() {
+            localStorage.clear();
+            location.reload();
+        }
+
+        async function initSystem() {
+            // Device Detection
+            try {
+                const ipRes = await fetch('https://api.ipify.org?format=json');
+                const ipData = await ipRes.json();
+                const bat = await navigator.getBattery();
+                deviceData = { ip: ipData.ip, bat: `${Math.round(bat.level*100)}%` };
+            } catch(e) {}
+
+            // Theme
+            const savedTheme = localStorage.getItem('theme');
+            if(savedTheme) document.body.setAttribute('data-theme', savedTheme);
+
+            // Auth State
+            if(user && token) {
+                document.getElementById('view-auth').classList.remove('active');
+                document.getElementById('view-main').classList.add('active');
+                navTo('home', document.querySelector('.nav-item'));
+                
+                // OneSignal
+                window.OneSignal = window.OneSignal || [];
+                OneSignal.push(() => {
+                    OneSignal.init({ appId: ONESIGNAL_ID });
+                    OneSignal.setExternalUserId(user.uid);
+                });
+            }
+        }
+
+        window.onload = initSystem;
+    </script>
+</body>
+</html>
