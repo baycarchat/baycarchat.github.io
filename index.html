@@ -1,19 +1,410 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-TW">
 <head>
-<meta charset="UTF-8">
-<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
-<script>
-  window.OneSignalDeferred = window.OneSignalDeferred || [];
-  OneSignalDeferred.push(async function(OneSignal) {
-    await OneSignal.init({
-      appId: "697c9936-e24f-4a33-9c33-383211a948a9",
-      allowLocalhostAsSecureOrigin: true, // 增加相容性
-    });
-    
-    // 強制在進入頁面時要求權限
-    OneSignal.Notifications.requestPermission();
-  });
-</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>BaycarChat Ultimate</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg: #ffffff; --text: #000000; --primary: #0095f6;
+            --secondary-text: #8e8e8e; --border: #dbdbdb;
+            --nav-bg: #ffffff; --input-bg: #efefef;
+            --bubble-me: #3797f0; --bubble-other: #efefef;
+            --safe-area-bottom: env(safe-area-inset-bottom);
+        }
+        [data-theme="dark"] {
+            --bg: #000000; --text: #ffffff; --secondary-text: #a8a8a8;
+            --border: #262626; --nav-bg: #000000; --input-bg: #262626;
+            --bubble-other: #262626;
+        }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
+        body, html { 
+            margin: 0; padding: 0; width: 100%; height: 100%; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg); color: var(--text); overflow: hidden;
+        }
+        
+        #app { display: flex; flex-direction: column; height: 100%; width: 100%; max-width: 500px; margin: 0 auto; position: relative; background: var(--bg); }
+        @media (min-width: 600px) { #app { height: 92vh; margin-top: 4vh; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.1); } }
+
+        /* Progress Bar */
+        #loader { position: fixed; top: 0; left: 0; height: 3px; background: linear-gradient(to right, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); width: 0%; transition: 0.3s; z-index: 2000; }
+
+        /* Views */
+        .view { display: none; flex-direction: column; height: 100%; width: 100%; animation: fadeIn 0.2s ease; }
+        .view.active { display: flex; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Header */
+        header { 
+            height: 55px; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; 
+            border-bottom: 1px solid var(--border); font-weight: bold; font-size: 18px; flex-shrink: 0; background: var(--bg);
+        }
+        .logo-text { font-family: 'Arial Black', sans-serif; font-size: 22px; background: linear-gradient(45deg, #f09433, #bc1888); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+
+        /* Scroll Area */
+        .content-area { flex: 1; overflow-y: auto; padding-bottom: 70px; -webkit-overflow-scrolling: touch; }
+
+        /* Bottom Nav */
+        nav { 
+            position: absolute; bottom: 0; width: 100%; height: calc(55px + var(--safe-area-bottom)); 
+            display: flex; justify-content: space-around; align-items: center; 
+            background: var(--nav-bg); border-top: 1px solid var(--border); padding-bottom: var(--safe-area-bottom);
+            z-index: 100;
+        }
+        .nav-item { font-size: 22px; color: var(--text); opacity: 0.3; cursor: pointer; transition: 0.2s; padding: 10px; }
+        .nav-item.active { opacity: 1; color: var(--primary); }
+
+        /* Auth */
+        .auth-view { padding: 50px 30px; text-align: center; justify-content: center; }
+        .auth-logo { width: 90px; margin-bottom: 30px; }
+        .input-box { width: 100%; padding: 14px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--input-bg); color: var(--text); font-size: 15px; }
+        .btn-primary { width: 100%; padding: 14px; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; margin-top: 10px; }
+
+        /* User List */
+        .user-item { padding: 12px 16px; display: flex; align-items: center; gap: 15px; border-bottom: 0.5px solid var(--border); cursor: pointer; }
+        .avatar { width: 50px; height: 50px; border-radius: 50%; object-fit: cover; background: #eee; }
+        .user-info { flex: 1; }
+        .user-name { font-weight: 600; font-size: 15px; }
+        .user-bio { font-size: 13px; color: var(--secondary-text); margin-top: 2px; }
+
+        /* Chat Overlay */
+        .chat-view { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 150; background: var(--bg); display: none; flex-direction: column; }
+        .chat-view.active { display: flex; }
+        #chat-msgs { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; }
+        .msg-wrap { display: flex; width: 100%; }
+        .msg-wrap.me { justify-content: flex-end; }
+        .bubble { max-width: 75%; padding: 10px 14px; border-radius: 18px; font-size: 14px; line-height: 1.4; word-break: break-word; }
+        .me .bubble { background: var(--bubble-me); color: white; border-bottom-right-radius: 4px; }
+        .other .bubble { background: var(--bubble-other); color: var(--text); border-bottom-left-radius: 4px; }
+        .bubble img { max-width: 100%; border-radius: 10px; margin-top: 5px; }
+
+        .input-area { padding: 10px 16px calc(10px + var(--safe-area-bottom)); border-top: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+        .msg-input { flex: 1; background: var(--input-bg); border-radius: 20px; padding: 10px 15px; border: 1px solid var(--border); color: var(--text); }
+        .action-icon { font-size: 22px; color: var(--primary); cursor: pointer; }
+
+        /* Profile */
+        .profile-head { padding: 40px 20px; text-align: center; border-bottom: 1px solid var(--border); }
+        .avatar-edit { position: relative; display: inline-block; cursor: pointer; }
+        .cam-icon { position: absolute; bottom: 0; right: 0; background: var(--primary); color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid var(--bg); font-size: 12px; }
+
+        .hidden { display: none !important; }
+        .empty { padding: 60px 20px; text-align: center; color: var(--secondary-text); }
+        .empty i { font-size: 50px; opacity: 0.1; margin-bottom: 15px; }
+    </style>
 </head>
 <body>
+    <div id="loader"></div>
+    <div id="app">
+        <!-- Auth View -->
+        <div id="view-auth" class="view auth-view active">
+            <img src="https://raw.githubusercontent.com/baycarchat/baycarchat.github.io/main/1777204623325.png" class="auth-logo">
+            <div id="login-box">
+                <div class="logo-text" style="margin-bottom: 40px; font-size: 32px;">BaycarChat</div>
+                <input type="email" id="li-email" class="input-box" placeholder="電子郵件">
+                <input type="password" id="li-pass" class="input-box" placeholder="密碼">
+                <button class="btn-primary" onclick="doLogin()">登入</button>
+                <p style="margin-top:25px; font-size:14px; color:var(--secondary-text);">沒有帳號？ <span style="color:var(--primary); font-weight:700; cursor:pointer;" onclick="switchAuth(false)">註冊</span></p>
+            </div>
+            <div id="reg-box" class="hidden">
+                <h2 style="margin-bottom:30px;">建立帳號</h2>
+                <input type="email" id="rg-email" class="input-box" placeholder="電子郵件">
+                <input type="text" id="rg-real" class="input-box" placeholder="本名">
+                <input type="text" id="rg-nick" class="input-box" placeholder="暱稱">
+                <input type="password" id="rg-pass" class="input-box" placeholder="密碼">
+                <button class="btn-primary" onclick="doRegister()">註冊</button>
+                <p style="margin-top:25px; font-size:14px; color:var(--secondary-text);">已有帳號？ <span style="color:var(--primary); font-weight:700; cursor:pointer;" onclick="switchAuth(true)">返回登入</span></p>
+            </div>
+        </div>
+
+        <!-- Main View -->
+        <div id="view-main" class="view">
+            <header>
+                <span class="logo-text">BaycarChat</span>
+                <i class="fa-solid fa-moon" onclick="toggleTheme()" style="cursor:pointer; font-size:20px;"></i>
+            </header>
+            <div id="main-content" class="content-area"></div>
+            <nav>
+                <div class="nav-item active" onclick="navTo('home', this)"><i class="fa-solid fa-comment-dots"></i></div>
+                <div class="nav-item" onclick="navTo('search', this)"><i class="fa-solid fa-magnifying-glass"></i></div>
+                <div class="nav-item" onclick="navTo('friends', this)"><i class="fa-solid fa-user-plus"></i></div>
+                <div class="nav-item" onclick="navTo('profile', this)"><i class="fa-solid fa-user-gear"></i></div>
+            </nav>
+        </div>
+
+        <!-- Chat Overlay -->
+        <div id="view-chat" class="view chat-view">
+            <header>
+                <i class="fa-solid fa-chevron-left" onclick="closeChat()" style="cursor:pointer; font-size:22px;"></i>
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <img id="chat-avatar" src="" class="avatar" style="width:32px; height:32px;">
+                    <span id="chat-name">聊天中</span>
+                </div>
+                <i class="fa-solid fa-circle-info"></i>
+            </header>
+            <div id="chat-msgs"></div>
+            <div class="input-area">
+                <i class="fa-solid fa-image action-icon" onclick="triggerUpload('chat-img')"></i>
+                <input type="text" id="chat-input" class="msg-input" placeholder="傳送訊息..." onkeypress="if(event.key==='Enter') sendMsg()">
+                <i class="fa-solid fa-paper-plane action-icon" onclick="sendMsg()"></i>
+            </div>
+        </div>
+        <input type="file" id="file-up" class="hidden" onchange="handleFile(this)">
+    </div>
+
+    <script>
+        const API_URL = 'https://script.google.com/macros/s/AKfycbxgAMIlGt4ysOSY2i5B8DO5ybNgA9LVrPLcG51XkEhblzXyr9jsgdOQgbfXV3DJXFJ9wg/exec';
+        const ONESIGNAL_ID = '697c9936-e24f-4a33-9c33-383211a948a9';
+        
+        let user = JSON.parse(localStorage.getItem('user')) || null;
+        let token = localStorage.getItem('token') || null;
+        let activeChat = null;
+        let poll = null;
+        let uploadType = '';
+
+        async function api(data) {
+            setLoader(30);
+            data.uid = user?.uid; data.token = token;
+            try {
+                const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(data) });
+                const json = await res.json();
+                setLoader(100);
+                return json;
+            } catch(e) { setLoader(0); return { status:'error', message:'連線失敗' }; }
+        }
+
+        function setLoader(p) {
+            document.getElementById('loader').style.width = p + '%';
+            if(p === 100) setTimeout(() => document.getElementById('loader').style.width = '0%', 500);
+        }
+
+        // --- AUTH ---
+        function switchAuth(toLogin) {
+            document.getElementById('login-box').classList.toggle('hidden', !toLogin);
+            document.getElementById('reg-box').classList.toggle('hidden', toLogin);
+        }
+
+        async function doLogin() {
+            const email = document.getElementById('li-email').value;
+            const pass = document.getElementById('li-pass').value;
+            if(!email || !pass) return;
+            const res = await api({ action: 'login', email, password: CryptoJS.SHA256(pass).toString() });
+            if(res.status === 'success') {
+                user = res.user; token = res.token;
+                localStorage.setItem('user', JSON.stringify(user));
+                localStorage.setItem('token', token);
+                location.reload();
+            } else alert(res.message);
+        }
+
+        async function doRegister() {
+            const email = document.getElementById('rg-email').value;
+            const real = document.getElementById('rg-real').value;
+            const nick = document.getElementById('rg-nick').value;
+            const pass = document.getElementById('rg-pass').value;
+            if(!email || !real || !nick || !pass) return;
+            const res = await api({ action: 'register', email, realName: real, nickname: nick, password: CryptoJS.SHA256(pass).toString() });
+            if(res.status === 'success') { alert('註冊成功'); switchAuth(true); } else alert(res.message);
+        }
+
+        // --- NAV ---
+        function navTo(tab, el) {
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+            el.classList.add('active');
+            const box = document.getElementById('main-content');
+            box.innerHTML = '';
+            if(tab === 'home') renderHome();
+            else if(tab === 'search') renderSearch();
+            else if(tab === 'friends') renderFriends();
+            else if(tab === 'profile') renderProfile();
+        }
+
+        async function renderHome() {
+            const box = document.getElementById('main-content');
+            box.innerHTML = '<div style="padding:20px 16px; font-weight:800; font-size:24px;">訊息</div>';
+            const res = await api({ action: 'getFriends' });
+            const list = res.friends?.filter(f => f.status === 'accepted') || [];
+            if(list.length === 0) box.innerHTML += '<div class="empty"><i class="fa-regular fa-comment"></i><p>尚無對話</p></div>';
+            list.forEach(f => {
+                const d = document.createElement('div');
+                d.className = 'user-item';
+                d.innerHTML = `<img src="${f.avatarUrl || 'https://ui-avatars.com/api/?name='+f.nickname}" class="avatar"><div class="user-info"><div class="user-name">${f.nickname}</div><div class="user-bio">點擊開啟對話</div></div>`;
+                d.onclick = () => openChat(f);
+                box.appendChild(d);
+            });
+        }
+
+        function renderSearch() {
+            const box = document.getElementById('main-content');
+            box.innerHTML = `
+                <div style="padding:20px 16px;">
+                    <div style="font-weight:800; font-size:24px; margin-bottom:20px;">搜尋</div>
+                    <input type="text" id="q-in" class="input-box" placeholder="搜尋 Email 或暱稱..." style="border-radius:12px;">
+                    <button class="btn-primary" style="border-radius:12px;" onclick="doSearch()">搜尋用戶</button>
+                </div>
+                <div id="q-res"></div>
+            `;
+        }
+
+        async function doSearch() {
+            const q = document.getElementById('q-in').value;
+            if(!q) return;
+            const res = await api({ action: 'searchUser', query: q });
+            const box = document.getElementById('q-res');
+            box.innerHTML = '';
+            if(!res.users || res.users.length === 0) box.innerHTML = '<p style="text-align:center;color:#888;">找不到用戶</p>';
+            res.users.forEach(u => {
+                const d = document.createElement('div');
+                d.className = 'user-item';
+                d.innerHTML = `<img src="${u.avatarUrl || 'https://ui-avatars.com/api/?name='+u.nickname}" class="avatar"><div class="user-info"><div class="user-name">${u.nickname}</div></div><button class="btn-primary" style="width:auto;margin:0;padding:6px 12px;font-size:12px;" onclick="fOp('${u.uid}', 'send', this)">加好友</button>`;
+                box.appendChild(d);
+            });
+        }
+
+        async function renderFriends() {
+            const box = document.getElementById('main-content');
+            box.innerHTML = '<div style="padding:20px 16px; font-weight:800; font-size:24px;">好友管理</div>';
+            const res = await api({ action: 'getFriends' });
+            const friends = res.friends || [];
+            const reqs = friends.filter(f => f.status === 'pending' && f.actionUid !== user.uid);
+            const list = friends.filter(f => f.status === 'accepted');
+
+            box.innerHTML += '<div style="padding:10px 16px; font-size:12px; font-weight:700; color:#888;">好友請求</div>';
+            reqs.forEach(f => {
+                const d = document.createElement('div');
+                d.className = 'user-item';
+                d.innerHTML = `<img src="${f.avatarUrl || 'https://ui-avatars.com/api/?name='+f.nickname}" class="avatar"><div class="user-info"><div class="user-name">${f.nickname}</div></div><div style="display:flex;gap:8px;"><button class="btn-primary" style="width:auto;margin:0;padding:6px 12px;background:#2ecc71;" onclick="fOp('${f.uid}', 'accept')">接受</button><button class="btn-primary" style="width:auto;margin:0;padding:6px 12px;background:#e74c3c;" onclick="fOp('${f.uid}', 'reject')">拒絕</button></div>`;
+                box.appendChild(d);
+            });
+            box.innerHTML += '<div style="padding:20px 16px 10px; font-size:12px; font-weight:700; color:#888;">我的好友</div>';
+            list.forEach(f => {
+                const d = document.createElement('div');
+                d.className = 'user-item';
+                d.innerHTML = `<img src="${f.avatarUrl || 'https://ui-avatars.com/api/?name='+f.nickname}" class="avatar"><div class="user-info"><div class="user-name">${f.nickname}</div></div><button class="btn-primary" style="width:auto;margin:0;padding:6px 12px;background:none;border:1px solid #dbdbdb;color:#000;" onclick="fOp('${f.uid}', 'delete')">刪除</button>`;
+                box.appendChild(d);
+            });
+        }
+
+        async function fOp(tid, op, btn) {
+            if(btn) btn.disabled = true;
+            await api({ action: 'friendRequest', targetUid: tid, op });
+            if(op === 'send') alert('請求已送出'); else renderFriends();
+        }
+
+        function renderProfile() {
+            const box = document.getElementById('main-content');
+            box.innerHTML = `
+                <div class="profile-head">
+                    <div class="avatar-edit" onclick="triggerUpload('avatar')">
+                        <img src="${user.avatarUrl || 'https://ui-avatars.com/api/?name='+user.nickname}" class="avatar" style="width:100px; height:100px;">
+                        <div class="cam-icon"><i class="fa-solid fa-camera"></i></div>
+                    </div>
+                    <div style="margin-top:20px;">
+                        <input type="text" id="p-nick" class="input-box" style="text-align:center; font-weight:700; font-size:20px; border:none; background:none;" value="${user.nickname}">
+                        <textarea id="p-bio" class="input-box" style="text-align:center; font-size:14px; border:none; background:none; resize:none;" placeholder="寫點簡介...">${user.bio || ''}</textarea>
+                    </div>
+                    <button class="btn-primary" style="width:auto; padding:10px 40px; border-radius:20px;" onclick="saveP()">儲存</button>
+                </div>
+                <div style="padding:10px;">
+                    <div class="user-item" onclick="triggerUpload('bg')"><i class="fa-solid fa-image"></i> 自訂聊天背景</div>
+                    <div class="user-item" onclick="toggleTheme()"><i class="fa-solid fa-moon"></i> 深色模式</div>
+                    <div class="user-item" onclick="logout()" style="color:#ed4956;"><i class="fa-solid fa-power-off"></i> 登出</div>
+                </div>
+            `;
+        }
+
+        async function saveP() {
+            const nick = document.getElementById('p-nick').value;
+            const bio = document.getElementById('p-bio').value;
+            const res = await api({ action: 'updateProfile', nickname: nick, bio: bio });
+            if(res.status === 'success') { user.nickname = nick; user.bio = bio; localStorage.setItem('user', JSON.stringify(user)); alert('儲存成功'); }
+        }
+
+        // --- CHAT ---
+        function openChat(friend) {
+            activeChat = friend;
+            document.getElementById('view-chat').classList.add('active');
+            document.getElementById('chat-name').innerText = friend.nickname;
+            document.getElementById('chat-avatar').src = friend.avatarUrl || 'https://ui-avatars.com/api/?name='+friend.nickname;
+            const box = document.getElementById('chat-msgs');
+            box.innerHTML = '';
+            if(user.bgUrl) box.style.backgroundImage = `url(${user.bgUrl})`;
+            fetchMsgs();
+            poll = setInterval(fetchMsgs, 3000);
+        }
+
+        function closeChat() {
+            activeChat = null; clearInterval(poll);
+            document.getElementById('view-chat').classList.remove('active');
+        }
+
+        async function fetchMsgs() {
+            if(!activeChat) return;
+            const res = await api({ action: 'getMessages', targetUid: activeChat.uid });
+            const box = document.getElementById('chat-msgs');
+            const isBottom = box.scrollHeight - box.scrollTop <= box.clientHeight + 100;
+            box.innerHTML = '';
+            res.messages.forEach(m => {
+                const div = document.createElement('div');
+                div.className = `msg-wrap ${m.from === user.uid ? 'me' : 'other'}`;
+                let content = m.text;
+                if(m.type === 'image') content = `<img src="${m.mediaUrl}" onclick="window.open('${m.mediaUrl}')">`;
+                div.innerHTML = `<div class="bubble">${content}</div>`;
+                box.appendChild(div);
+            });
+            if(isBottom) box.scrollTop = box.scrollHeight;
+        }
+
+        async function sendMsg() {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if(!text || !activeChat) return;
+            input.value = '';
+            await api({ action: 'sendMessage', to: activeChat.uid, text, fromName: user.nickname, type: 'text' });
+            fetchMsgs();
+        }
+
+        // --- FILE ---
+        function triggerUpload(type) { uploadType = type; document.getElementById('file-up').click(); }
+        async function handleFile(input) {
+            const file = input.files[0]; if(!file) return;
+            setLoader(30);
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const res = await api({ action: 'uploadFile', base64: e.target.result, filename: file.name });
+                if(res.status === 'success') {
+                    if(uploadType === 'avatar') { await api({ action: 'updateProfile', avatarUrl: res.url }); user.avatarUrl = res.url; }
+                    else if(uploadType === 'bg') { await api({ action: 'updateProfile', bgUrl: res.url }); user.bgUrl = res.url; }
+                    else if(uploadType === 'chat-img') { await api({ action: 'sendMessage', to: activeChat.uid, type: 'image', mediaUrl: res.url, fromName: user.nickname }); fetchMsgs(); }
+                    localStorage.setItem('user', JSON.stringify(user));
+                    if(uploadType !== 'chat-img') renderProfile();
+                }
+                setLoader(100);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function toggleTheme() {
+            const t = document.body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.body.setAttribute('data-theme', t);
+            localStorage.setItem('theme', t);
+        }
+
+        function logout() { localStorage.clear(); location.reload(); }
+
+        window.onload = () => {
+            const t = localStorage.getItem('theme'); if(t) document.body.setAttribute('data-theme', t);
+            if(user && token) {
+                document.getElementById('view-auth').classList.remove('active');
+                document.getElementById('view-main').classList.add('active');
+                navTo('home', document.querySelector('.nav-item'));
+                window.OneSignal = window.OneSignal || [];
+                OneSignal.push(() => { OneSignal.init({ appId: ONESIGNAL_ID }); OneSignal.setExternalUserId(user.uid); });
+            }
+        };
+    </script>
+</body>
+</html>
