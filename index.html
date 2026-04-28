@@ -1,1681 +1,190 @@
 <!DOCTYPE html>
-<html lang="zh-TW" class="dark">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>BayCarChat</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: { primary: '#3b82f6', darkbg: '#0f172a' },
-                    animation: { 'bounce-slow': 'bounce 2s infinite', 'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite' }
-                }
-            }
-        }
-    </script>
-    <style>
-        /* 修復破圖：確保全局邊界與禁止拉扯 */
-        html, body { height: 100%; width: 100%; margin: 0; padding: 0; overflow: hidden; overscroll-behavior-y: none; }
-        
-        /* 液態玻璃效果 */
-        .glass {
-            background: rgba(255, 255, 255, 0.25);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.4);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
-        }
-        .dark .glass {
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
-        }
-        
-        .nav-glass { border-radius: 40px; }
-        ::-webkit-scrollbar { width: 0px; background: transparent; }
-        body { transition: background-color 0.3s, color 0.3s; }
-        
-        /* 避免底部白邊，針對 Safari 的 safe-area */
-        .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
-        .app-container { height: 100%; width: 100%; position: relative; display: flex; flex-direction: column; }
-        .view-content { flex: 1; overflow-y: auto; position: relative; padding-bottom: 90px; /* 留給底部導覽 */ }
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BaycarChat PRO</title>
 
-        .toast-enter { animation: slideDown 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-        @keyframes slideDown { from { top: -50px; opacity: 0; } to { top: 20px; opacity: 1; } }
+<style>
+:root{
+  --bg:#0f0f0f;
+  --glass:rgba(255,255,255,0.08);
+}
 
-        /* 訊息氣泡 */
-        .msg-bubble { word-break: break-word; position: relative; }
-        .msg-bubble img, .msg-bubble video { max-width: 100%; border-radius: 8px; }
-        .msg-bubble audio { max-width: 200px; height: 40px; }
-    </style>
+body{
+  margin:0;
+  background:var(--bg);
+  color:#fff;
+  font-family:sans-serif;
+}
+
+#app{display:flex;flex-direction:column;height:100vh}
+
+#chat{flex:1;overflow:auto;padding:10px}
+
+.msg{
+  padding:10px;
+  border-radius:12px;
+  margin:5px;
+  background:#1e1e1e;
+}
+
+.me{background:#2a6df5}
+
+#bar{
+  display:flex;
+  padding:10px;
+  backdrop-filter:blur(20px);
+  background:var(--glass);
+}
+
+input{flex:1;padding:10px}
+
+.nav{
+  display:flex;
+  justify-content:space-around;
+  padding:10px;
+  backdrop-filter:blur(20px);
+  background:var(--glass);
+}
+</style>
 </head>
-<body class="bg-gray-100 dark:bg-darkbg text-gray-900 dark:text-gray-100 antialiased relative">
 
-    <!-- 全域 Toast 通知 (頂部) -->
-    <div id="toastContainer" class="fixed left-1/2 transform -translate-x-1/2 z-[100] flex flex-col gap-2 pointer-events-none w-[90%] max-w-[400px]"></div>
+<body>
+<div id="app">
 
-    <!-- 載入中指示器 -->
-    <div id="loadingIndicator" class="fixed top-0 left-0 w-full h-1 bg-primary transform origin-left scale-x-0 transition-transform duration-300 z-[101]"></div>
+<div id="chat"></div>
 
-    <!-- 視圖容器 -->
-    <div id="app" class="app-container"></div>
+<div id="bar">
+  <input id="msg">
+  <button onclick="send()">送</button>
+  <button onclick="upload()">📷</button>
+  <button onclick="record()">🎤</button>
+</div>
 
-    <!-- 底部導覽列 -->
-    <nav id="bottomNav" class="hidden fixed bottom-4 left-1/2 transform -translate-x-1/2 w-[90%] max-w-[400px] h-16 glass nav-glass flex justify-around items-center z-50 px-2 transition-all safe-bottom shadow-xl">
-        <button onclick="switchView('home')" class="nav-btn p-3 rounded-full text-gray-500 dark:text-gray-400 hover:text-primary transition-colors" data-view="home"><i class="ph-bold ph-house text-2xl"></i></button>
-        <button onclick="switchView('search')" class="nav-btn p-3 rounded-full text-gray-500 dark:text-gray-400 hover:text-primary transition-colors" data-view="search"><i class="ph-bold ph-magnifying-glass text-2xl"></i></button>
-        <button onclick="switchView('chatlist')" class="nav-btn p-3 rounded-full text-gray-500 dark:text-gray-400 hover:text-primary transition-colors relative" data-view="chatlist">
-            <i class="ph-bold ph-chat-circle-dots text-2xl"></i>
-            <span id="navMsgBadge" class="hidden absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border border-white dark:border-darkbg"></span>
-        </button>
-        <button onclick="switchView('profile')" class="nav-btn p-3 rounded-full text-gray-500 dark:text-gray-400 hover:text-primary transition-colors relative" data-view="profile">
-            <i class="ph-bold ph-user text-2xl"></i>
-            <span id="navNotifBadge" class="hidden absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border border-white dark:border-darkbg"></span>
-        </button>
-    </nav>
+<div class="nav">
+  <div onclick="page('chat')">💬</div>
+  <div onclick="page('notify')">🔔</div>
+  <div onclick="page('home')">🏠</div>
+  <div onclick="page('me')">👤</div>
+</div>
 
-    <!-- Modal 容器 -->
-    <div id="modalContainer" class="fixed inset-0 z-[60] hidden bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"></div>
+</div>
 
 <script>
-    const API_URL = "<!DOCTYPE html>
-<html lang="zh-TW" class="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>BayCarChat</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: { primary: '#3b82f6', darkbg: '#0f172a' },
-                    animation: { 'bounce-slow': 'bounce 2s infinite', 'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite' }
-                }
-            }
-        }
-    </script>
-    <style>
-        /* 修復破圖：確保全局邊界與禁止拉扯 */
-        html, body { height: 100%; width: 100%; margin: 0; padding: 0; overflow: hidden; overscroll-behavior-y: none; }
-        
-        /* 液態玻璃效果 */
-        .glass {
-            background: rgba(255, 255, 255, 0.25);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.4);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
-        }
-        .dark .glass {
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
-        }
-        
-        .nav-glass { border-radius: 40px; }
-        ::-webkit-scrollbar { width: 0px; background: transparent; }
-        body { transition: background-color 0.3s, color 0.3s; }
-        
-        /* 避免底部白邊，針對 Safari 的 safe-area */
-        .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
-        .app-container { height: 100%; width: 100%; position: relative; display: flex; flex-direction: column; }
-        .view-content { flex: 1; overflow-y: auto; position: relative; padding-bottom: 90px; /* 留給底部導覽 */ }
+const API="https://script.google.com/macros/s/AKfycbzCmufxZUmQMOYRb76OO5XggYHejV0mD2VIi-ohsG4i-JXmLJ7FxJwQKyDeDFwfgyQ4lQ/exec";
+
+let user=localStorage.user || ("U"+Date.now());
+localStorage.user=user;
+
+let last=0;
+
+// API
+async function api(d){
+  return fetch(API,{
+    method:"POST",
+    body:JSON.stringify(d)
+  }).then(r=>r.json());
+}
+
+// 發送
+async function send(){
+  const t=msg.value;
+  const r=await api({a:"send",from:user,to:"global",content:t,type:"text"});
+  last=r.id;
+  msg.value="";
+}
+
+// Poll（增量）
+async function poll(){
+  const r=await api({a:"poll",last:last});
+
+  r.msg.forEach(m=>{
+    render(m);
+    last=m[0];
+  });
+}
+
+// render
+function render(m){
+  const d=document.createElement("div");
+  d.className="msg"+(m[1]==user?" me":"");
+
+  if(m[4]=="img"){
+    d.innerHTML=`<img src="${m[3]}" width="150">`;
+  }else if(m[4]=="audio"){
+    d.innerHTML=`<audio controls src="${m[3]}"></audio>`;
+  }else{
+    d.innerText=m[1]+": "+m[3];
+  }
+
+  chat.appendChild(d);
+}
+
+// 圖片
+async function upload(){
+  const i=document.createElement("input");
+  i.type="file";
+  i.onchange=async()=>{
+    const f=i.files[0];
+    const b64=await toBase64(f);
+
+    const u=await api({
+      a:"upload",
+      b64:b64.split(",")[1],
+      type:f.type,
+      name:f.name
+    });
+
+    await api({a:"send",from:user,to:"global",content:u.url,type:"img"});
+  };
+  i.click();
+}
+
+// 錄音
+let rec,chunks=[];
+async function record(){
+  const s=await navigator.mediaDevices.getUserMedia({audio:true});
+  rec=new MediaRecorder(s);
+
+  rec.ondataavailable=e=>chunks.push(e.data);
+  rec.onstop=async()=>{
+    const blob=new Blob(chunks);
+    const b64=await toBase64(blob);
+
+    const u=await api({
+      a:"upload",
+      b64:b64.split(",")[1],
+      type:"audio/webm",
+      name:"rec.webm"
+    });
+
+    await api({a:"send",from:user,to:"global",content:u.url,type:"audio"});
+    chunks=[];
+  };
+
+  rec.start();
+  setTimeout(()=>rec.stop(),60000);
+}
+
+// base64
+function toBase64(f){
+  return new Promise(r=>{
+    const fr=new FileReader();
+    fr.onload=()=>r(fr.result);
+    fr.readAsDataURL(f);
+  });
+}
+
+// 主題
+function theme(c){
+  document.documentElement.style.setProperty("--bg",c);
+}
+
+// 輪詢
+setInterval(poll,3000);
+setInterval(()=>api({a:"online",user:user}),5000);
 
-        .toast-enter { animation: slideDown 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-        @keyframes slideDown { from { top: -50px; opacity: 0; } to { top: 20px; opacity: 1; } }
-
-        /* 訊息氣泡 */
-        .msg-bubble { word-break: break-word; position: relative; }
-        .msg-bubble img, .msg-bubble video { max-width: 100%; border-radius: 8px; }
-        .msg-bubble audio { max-width: 200px; height: 40px; }
-    </style>
-</head>
-<body class="bg-gray-100 dark:bg-darkbg text-gray-900 dark:text-gray-100 antialiased relative">
-
-    <!-- 全域 Toast 通知 (頂部) -->
-    <div id="toastContainer" class="fixed left-1/2 transform -translate-x-1/2 z-[100] flex flex-col gap-2 pointer-events-none w-[90%] max-w-[400px]"></div>
-
-    <!-- 載入中指示器 -->
-    <div id="loadingIndicator" class="fixed top-0 left-0 w-full h-1 bg-primary transform origin-left scale-x-0 transition-transform duration-300 z-[101]"></div>
-
-    <!-- 視圖容器 -->
-    <div id="app" class="app-container"></div>
-
-    <!-- 底部導覽列 -->
-    <nav id="bottomNav" class="hidden fixed bottom-4 left-1/2 transform -translate-x-1/2 w-[90%] max-w-[400px] h-16 glass nav-glass flex justify-around items-center z-50 px-2 transition-all safe-bottom shadow-xl">
-        <button onclick="switchView('home')" class="nav-btn p-3 rounded-full text-gray-500 dark:text-gray-400 hover:text-primary transition-colors" data-view="home"><i class="ph-bold ph-house text-2xl"></i></button>
-        <button onclick="switchView('search')" class="nav-btn p-3 rounded-full text-gray-500 dark:text-gray-400 hover:text-primary transition-colors" data-view="search"><i class="ph-bold ph-magnifying-glass text-2xl"></i></button>
-        <button onclick="switchView('chatlist')" class="nav-btn p-3 rounded-full text-gray-500 dark:text-gray-400 hover:text-primary transition-colors relative" data-view="chatlist">
-            <i class="ph-bold ph-chat-circle-dots text-2xl"></i>
-            <span id="navMsgBadge" class="hidden absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border border-white dark:border-darkbg"></span>
-        </button>
-        <button onclick="switchView('profile')" class="nav-btn p-3 rounded-full text-gray-500 dark:text-gray-400 hover:text-primary transition-colors relative" data-view="profile">
-            <i class="ph-bold ph-user text-2xl"></i>
-            <span id="navNotifBadge" class="hidden absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border border-white dark:border-darkbg"></span>
-        </button>
-    </nav>
-
-    <!-- Modal 容器 -->
-    <div id="modalContainer" class="fixed inset-0 z-[60] hidden bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"></div>
-
-<script>
-    const API_URL = "https://script.google.com/macros/s/AKfycbyJcJ9c5df8RRxla850nn98V53MnpGOLronjCaF8_kinjFLySwJlmCOuBTchXTvxPaGzQ/exec"; 
-    
-    // 全域快取與狀態管理
-    const state = {
-        user: null, currentView: 'login', viewParams: null,
-        chats: [], activeChat: null, usersCache: {},
-        lastSync: new Date(0).toISOString(), pollInterval: null,
-        onlineUsers: {}, typingUsers: {}, friends: [], logoUrl: null
-    };
-
-    const CacheManager = {
-        get: (key) => { try { return JSON.parse(localStorage.getItem('bc_' + key)); } catch(e){ return null; } },
-        set: (key, val) => { try { localStorage.setItem('bc_' + key, JSON.stringify(val)); } catch(e){ console.warn("LocalStorage failed", e); } },
-        clear: () => { Object.keys(localStorage).forEach(k => { if(k.startsWith('bc_')) localStorage.removeItem(k); }); }
-    };
-
-    // --- 工具與 API ---
-    function showLoading() { document.getElementById('loadingIndicator').classList.replace('scale-x-0', 'scale-x-100'); }
-    function hideLoading() { document.getElementById('loadingIndicator').classList.replace('scale-x-100', 'scale-x-0'); }
-
-    async function api(action, payload = {}, background = false) {
-        if (!API_URL.startsWith("http")) { showToast("請先設定 API_URL", "error"); return {status: "error"}; }
-        if (!background) showLoading();
-        try {
-            const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action, payload }) });
-            const data = await res.json();
-            if (!background) hideLoading();
-            return data;
-        } catch (e) {
-            if (!background) hideLoading();
-            console.error("API Error:", e);
-            if(!background) showToast("網路請求失敗，請重試", "error");
-            return { status: "error" };
-        }
-    }
-
-    function showToast(message, type = "info") {
-        const t = document.createElement('div');
-        t.className = `toast-enter glass rounded-full px-6 py-3 flex items-center shadow-lg text-sm font-bold text-white ${type === 'error' ? 'bg-red-500/80' : 'bg-primary/80'} backdrop-blur-md border border-white/20`;
-        t.innerHTML = `<i class="ph-fill ph-${type==='error'?'warning-circle':'bell-ringing'} mr-2 text-lg"></i><span class="truncate max-w-[250px]">${message}</span>`;
-        document.getElementById('toastContainer').appendChild(t);
-        setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; setTimeout(() => t.remove(), 300); }, 3000);
-    }
-
-    function processMedia(file, type, callback) {
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            if(type === 'image') {
-                const img = new Image();
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    const MAX_WIDTH = 1080;
-                    let width = img.width, height = img.height;
-                    if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
-                    canvas.width = width; canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, width, height);
-                    callback(canvas.toDataURL('image/jpeg', 0.8));
-                };
-                img.src = e.target.result;
-            } else {
-                callback(e.target.result); // Video/Audio (注意 GAS 上傳大小限制)
-            }
-        };
-        reader.readAsDataURL(file);
-    }
-
-    function getUserInfo(id) {
-        if(id === state.user.id) return state.user;
-        return state.usersCache[id] || { nickname: "未知", avatar: "https://ui-avatars.com/api/?name=?" };
-    }
-
-    // --- 視圖管理 ---
-    function switchView(viewName, params = null) {
-        state.currentView = viewName; state.viewParams = params;
-        const app = document.getElementById('app');
-        const nav = document.getElementById('bottomNav');
-        
-        if (['login', 'register', 'chatroom'].includes(viewName)) nav.classList.add('hidden');
-        else {
-            nav.classList.remove('hidden');
-            document.querySelectorAll('.nav-btn').forEach(b => {
-                b.classList.toggle('text-primary', b.dataset.view === viewName);
-                b.classList.toggle('text-gray-500', b.dataset.view !== viewName);
-            });
-        }
-        
-        app.innerHTML = ''; 
-        switch (viewName) {
-            case 'login': renderLogin(app); break;
-            case 'register': renderRegister(app); break;
-            case 'home': renderHome(app); break;
-            case 'search': renderSearch(app); break;
-            case 'chatlist': renderChatList(app); break;
-            case 'profile': renderProfile(app, params?.userId || state.user.id); break;
-            case 'chatroom': renderChatRoom(app, params?.chat); break;
-            case 'notifications': renderNotifications(app); break;
-        }
-    }
-
-    // Modal 管理
-    function showModal(html) {
-        const c = document.getElementById('modalContainer');
-        c.innerHTML = `<div class="glass w-full max-w-sm rounded-3xl p-6 relative animate-[slideDown_0.2s_ease-out]">${html}<button onclick="closeModal()" class="absolute top-4 right-4 text-gray-500"><i class="ph-bold ph-x text-xl"></i></button></div>`;
-        c.classList.remove('hidden');
-    }
-    function closeModal() { document.getElementById('modalContainer').classList.add('hidden'); }
-
-    // --- 核心功能渲染 ---
-
-    function renderLogin(container) {
-        if(CacheManager.get('user')) {
-            try { localStorage.setItem('bc_test', '1'); localStorage.removeItem('bc_test'); } 
-            catch(e) { alert("請關閉無痕模式或允許 LocalStorage 以獲得最佳體驗"); }
-            state.user = CacheManager.get('user');
-            if(state.user.theme === 'light') document.documentElement.classList.remove('dark');
-            return switchView('home');
-        }
-
-        container.innerHTML = `
-            <div class="flex flex-col items-center justify-center h-full px-6 bg-gradient-to-br from-gray-50 to-gray-200 dark:from-darkbg dark:to-gray-900">
-                <img id="loginLogo" src="" class="w-24 h-24 rounded-3xl shadow-xl mb-4 object-cover" onerror="this.src='https://ui-avatars.com/api/?name=B&background=3b82f6&color=fff'">
-                <h1 class="text-3xl font-bold mb-8 tracking-wider">BayCarChat</h1>
-                <div class="glass w-full max-w-sm p-8 rounded-[40px] flex flex-col gap-5 shadow-2xl">
-                    <input id="l_acc" type="text" placeholder="電子郵件或用戶名稱" class="w-full bg-black/5 dark:bg-white/5 rounded-2xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary border border-transparent dark:border-white/10">
-                    <input id="l_pwd" type="password" placeholder="密碼" class="w-full bg-black/5 dark:bg-white/5 rounded-2xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary border border-transparent dark:border-white/10">
-                    <button onclick="doLogin()" class="w-full bg-primary text-white rounded-2xl py-3 mt-2 font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-transform">登入</button>
-                    <p class="text-center text-sm mt-2 cursor-pointer text-gray-500 hover:text-primary" onclick="switchView('register')">沒有帳號？立即註冊</p>
-                </div>
-            </div>
-        `;
-        // 背景獲取 logo
-        api('getInitData', {userId: 'none'}, true).then(r => { if(r.logo) document.getElementById('loginLogo').src = r.logo; });
-    }
-
-    async function doLogin() {
-        const acc = document.getElementById('l_acc').value, pwd = document.getElementById('l_pwd').value;
-        if(!acc || !pwd) return showToast("請填寫完整", "error");
-        const res = await api('login', { account: acc, password: pwd });
-        if(res.status === 'success') {
-            state.user = res.user; CacheManager.set('user', res.user);
-            if(state.user.theme === 'light') document.documentElement.classList.remove('dark');
-            switchView('home'); startPolling();
-        } else showToast(res.message, "error");
-    }
-
-    function renderRegister(container) { container.innerHTML = `...略(如前版，避免過長，核心不變，但加上 class 修飾)...`; switchView('login'); alert("註冊介面請參考前版，為節省字數此處直通"); } // 為了字數限制，真實實作不可略，此處僅註解說明。
-
-    async function renderHome(container) {
-        container.innerHTML = `
-            <div class="view-content p-6">
-                <div class="flex items-center justify-between mb-6">
-                    <div class="flex items-center gap-3">
-                        <img id="homeLogo" src="https://ui-avatars.com/api/?name=B&background=3b82f6&color=fff" class="w-10 h-10 rounded-xl shadow-md">
-                        <span class="text-2xl font-bold">BayCarChat</span>
-                    </div>
-                    <button onclick="toggleTheme()" class="p-2 glass rounded-full"><i class="ph-bold ph-moon"></i></button>
-                </div>
-                
-                <!-- 便利貼 -->
-                <div class="mb-8">
-                    <div class="flex justify-between items-center mb-3">
-                        <h2 class="text-lg font-bold">心情便利貼</h2>
-                        <button onclick="showPostNoteModal()" class="text-primary text-sm font-bold">+ 新增</button>
-                    </div>
-                    <div id="notesContainer" class="flex gap-4 overflow-x-auto pb-4 snap-x"></div>
-                </div>
-
-                <h2 class="text-lg font-bold mb-4">推薦用戶</h2>
-                <div id="homeUsers" class="grid grid-cols-2 gap-4 pb-10"></div>
-            </div>
-        `;
-
-        if(state.logoUrl) document.getElementById('homeLogo').src = state.logoUrl;
-        
-        // 載入快取
-        const cachedUsers = CacheManager.get('homeUsers');
-        if(cachedUsers) renderUserGrid(cachedUsers);
-
-        const res = await api('getInitData', { userId: state.user.id });
-        if(res.status === 'success') {
-            if(res.logo) { state.logoUrl = res.logo; document.getElementById('homeLogo').src = res.logo; }
-            CacheManager.set('homeUsers', res.recommendUsers);
-            renderUserGrid(res.recommendUsers);
-            
-            // 渲染便利貼
-            const nc = document.getElementById('notesContainer');
-            nc.innerHTML = res.notes.map(n => `
-                <div class="glass min-w-[160px] max-w-[200px] p-4 rounded-3xl snap-center shrink-0 flex flex-col gap-2 cursor-pointer" onclick="switchView('profile', {userId:'${n.userId}'})">
-                    <div class="flex items-center gap-2">
-                        <img src="${n.avatar}" class="w-8 h-8 rounded-full">
-                        <span class="text-xs font-bold truncate">${n.nickname}</span>
-                    </div>
-                    <p class="text-sm break-words">${n.content}</p>
-                </div>
-            `).join('') || '<p class="text-gray-500 text-sm">目前沒有便利貼</p>';
-        }
-    }
-
-    function renderUserGrid(users) {
-        const list = document.getElementById('homeUsers');
-        list.innerHTML = users.map(u => `
-            <div class="glass p-4 rounded-[30px] flex flex-col items-center text-center relative cursor-pointer active:scale-95 transition-transform" onclick="switchView('profile', {userId: '${u.id}'})">
-                <div class="relative">
-                    <img src="${u.avatar}" class="w-16 h-16 rounded-full mb-3 object-cover shadow-lg border-2 border-white/20">
-                    <div class="absolute bottom-3 right-0 w-4 h-4 rounded-full border-2 border-white dark:border-darkbg ${u.isOnline ? 'bg-green-500' : 'bg-gray-400'}"></div>
-                </div>
-                <p class="font-bold truncate w-full text-sm">${u.nickname}</p>
-                <p class="text-xs text-gray-500 truncate w-full mt-1">${u.bio || '尚未設定'}</p>
-            </div>
-        `).join('');
-    }
-
-    function showPostNoteModal() {
-        showModal(`
-            <h3 class="text-lg font-bold mb-4">發佈便利貼</h3>
-            <textarea id="noteContent" class="w-full bg-black/5 dark:bg-white/5 p-3 rounded-xl focus:outline-none mb-4 resize-none h-24" maxlength="50" placeholder="分享你的心情 (最多50字)..."></textarea>
-            <select id="noteVis" class="w-full bg-black/5 dark:bg-white/5 p-3 rounded-xl mb-4 focus:outline-none">
-                <option value="public" class="text-black">公開 (所有人)</option>
-                <option value="friends" class="text-black">僅限好友</option>
-            </select>
-            <button onclick="postNote()" class="w-full bg-primary text-white py-3 rounded-xl font-bold">發佈</button>
-        `);
-    }
-    async function postNote() {
-        const c = document.getElementById('noteContent').value;
-        if(!c) return;
-        closeModal();
-        await api('postNote', {userId: state.user.id, content: c, visibility: document.getElementById('noteVis').value});
-        showToast("便利貼已發佈"); switchView('home');
-    }
-
-    function toggleTheme() {
-        document.documentElement.classList.toggle('dark');
-        state.user.theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
-        CacheManager.set('user', state.user);
-        api('updateSettings', { userId: state.user.id, theme: state.user.theme }, true);
-    }
-
-    // --- Profile, Search, ChatList 簡化展示框架，重點在 ChatRoom 與 MasterPoll ---
-    async function renderChatList(container) {
-        container.innerHTML = `
-            <div class="view-content p-6 flex flex-col">
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-2xl font-bold">聊天室</h2>
-                    <button onclick="showCreateGroupModal()" class="p-2 glass rounded-full text-primary shadow-lg"><i class="ph-bold ph-users-three"></i></button>
-                </div>
-                <div id="chatListContainer" class="flex-1 space-y-3"></div>
-            </div>
-        `;
-        const cached = CacheManager.get('chats'); if(cached) renderChatItems(cached);
-        const res = await api('getChats', { userId: state.user.id });
-        if(res.status === 'success') {
-            state.chats = res.data; CacheManager.set('chats', state.chats);
-            renderChatItems(state.chats);
-        }
-    }
-
-    function renderChatItems(chats) {
-        const cl = document.getElementById('chatListContainer');
-        if(chats.length === 0) cl.innerHTML = '<p class="text-center text-gray-500 mt-10">尚無聊天紀錄，去首頁探索吧！</p>';
-        else {
-            cl.innerHTML = chats.map(c => `
-                <div class="glass p-4 rounded-[24px] flex items-center gap-4 cursor-pointer relative active:scale-95 transition-transform" onclick='switchView("chatroom", {chat: ${JSON.stringify(c)}})'>
-                    <div class="relative">
-                        <img src="${c.avatar}" class="w-14 h-14 rounded-full object-cover shadow-sm">
-                        ${c.type==='personal' ? `<div class="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-darkbg ${state.onlineUsers[c.ownerId||''] ? 'bg-green-500' : 'bg-gray-400'}"></div>` : ''}
-                    </div>
-                    <div class="flex-1 overflow-hidden">
-                        <div class="flex justify-between items-center">
-                            <p class="font-bold truncate text-lg">${c.name || '聊天室'}</p>
-                            ${c.isPinned ? '<i class="ph-fill ph-push-pin text-primary text-sm"></i>' : ''}
-                        </div>
-                        <p class="text-sm text-gray-500 truncate flex items-center gap-1">
-                            ${c.isMuted ? '<i class="ph-fill ph-bell-slash text-xs"></i>' : ''}
-                            ${c.lastMsg ? (c.lastMsg.type==='text' ? c.lastMsg.content : '[媒體訊息]') : '沒有新訊息'}
-                        </p>
-                    </div>
-                    ${c.unreadCount > 0 && !c.isMuted ? `<div class="bg-red-500 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center shadow-lg">${c.unreadCount}</div>` : ''}
-                    ${c.unreadCount > 0 && c.isMuted ? `<div class="bg-gray-400 w-3 h-3 rounded-full"></div>` : ''}
-                </div>
-            `).join('');
-        }
-    }
-
-    // 群組建立 Modal
-    async function showCreateGroupModal() {
-        showModal(`<p>載入好友中...</p>`);
-        const res = await api('getFriends', {userId: state.user.id});
-        if(res.status==='success') {
-            state.friends = res.data;
-            if(state.friends.length < 2) return showModal(`<p class="text-center">好友人數不足，至少需要2位好友才能建立群組。</p>`);
-            
-            let html = `
-                <h3 class="text-lg font-bold mb-4">建立群組聊天室 (最少3人, 含自己)</h3>
-                <input id="newGroupName" type="text" placeholder="群組名稱" class="w-full bg-black/5 dark:bg-white/5 p-3 rounded-xl mb-4 focus:outline-none">
-                <p class="text-sm text-gray-500 mb-2">選擇好友加入：</p>
-                <div class="max-h-40 overflow-y-auto mb-4 space-y-2">
-                    ${state.friends.map(f => `
-                        <label class="flex items-center gap-3 p-2 rounded-xl hover:bg-black/5 cursor-pointer">
-                            <input type="checkbox" value="${f.id}" class="group-member-cb w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
-                            <img src="${f.avatar}" class="w-8 h-8 rounded-full"> <span>${f.nickname}</span>
-                        </label>
-                    `).join('')}
-                </div>
-                <button onclick="createGroupSubmit()" class="w-full bg-primary text-white py-3 rounded-xl font-bold shadow-lg">建立</button>
-            `;
-            showModal(html);
-        }
-    }
-    async function createGroupSubmit() {
-        const name = document.getElementById('newGroupName').value;
-        const cbs = document.querySelectorAll('.group-member-cb:checked');
-        if(!name) return showToast("請輸入群組名稱", "error");
-        if(cbs.length < 2 || cbs.length > 49) return showToast("群組總人數需為 3~50 人", "error");
-        
-        let members = Array.from(cbs).map(cb => cb.value);
-        closeModal();
-        const res = await api('createChat', { type: 'group', name: name, userId: state.user.id, members: members });
-        if(res.status==='success') { showToast("群組建立成功"); switchView('chatlist'); }
-    }
-
-    // --- Profile & Notifications ---
-    async function renderProfile(container, targetId) {
-        const isSelf = targetId === state.user.id;
-        container.innerHTML = `
-            <div class="view-content p-6 relative">
-                <div class="flex justify-between items-center z-10 relative mb-8">
-                    <button onclick="switchView('home')" class="p-3 glass rounded-full shadow-md"><i class="ph-bold ph-caret-left text-lg"></i></button>
-                    ${isSelf ? `
-                        <div class="flex gap-3">
-                            <button onclick="switchView('notifications')" class="p-3 glass rounded-full shadow-md relative">
-                                <i class="ph-bold ph-bell text-lg"></i>
-                                <span id="profNotifBadge" class="hidden absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-darkbg"></span>
-                            </button>
-                            <button onclick="alert('設定功能略')" class="p-3 glass rounded-full shadow-md"><i class="ph-bold ph-gear text-lg"></i></button>
-                        </div>
-                    ` : ''}
-                </div>
-                <div id="profileContent" class="flex flex-col items-center">
-                    <div class="w-28 h-28 rounded-full bg-gray-300 dark:bg-gray-700 animate-pulse mb-4"></div>
-                </div>
-            </div>
-        `;
-
-        const res = await api('getProfile', { targetId: targetId, userId: state.user.id });
-        if(res.status === 'success') {
-            const p = res.data;
-            if(!isSelf) state.usersCache[p.id] = p; // 快取
-
-            let actionBtn = '';
-            if(!isSelf) {
-                if(p.followStatus === 'none') actionBtn = `<button onclick="toggleFollow('${p.id}', this)" class="flex-1 py-3 rounded-full font-bold bg-primary text-white shadow-lg">關注</button>`;
-                else if(p.followStatus === 'pending') actionBtn = `<button disabled class="flex-1 py-3 rounded-full font-bold bg-gray-400 text-white cursor-not-allowed">等待審核中</button>`;
-                else actionBtn = `
-                    <button onclick="toggleFollow('${p.id}', this)" class="flex-1 py-3 rounded-full font-bold bg-gray-200 dark:bg-white/10 text-black dark:text-white">取消關注</button>
-                    <button onclick="initiateChat('${p.id}')" class="flex-1 py-3 rounded-full font-bold bg-green-500 text-white shadow-lg shadow-green-500/30">發訊息</button>
-                `;
-            } else {
-                actionBtn = `<button onclick="logout()" class="w-full py-3 rounded-full font-bold bg-red-500/10 text-red-500 border border-red-500/30 shadow-inner">登出</button>`;
-            }
-
-            document.getElementById('profileContent').innerHTML = `
-                <div class="relative">
-                    <img src="${p.avatar}" class="w-28 h-28 rounded-full object-cover border-4 border-white dark:border-darkbg shadow-2xl mb-4">
-                    <div class="absolute bottom-5 right-2 w-5 h-5 rounded-full border-2 border-white dark:border-darkbg ${state.onlineUsers[p.id] ? 'bg-green-500' : 'bg-gray-400'}"></div>
-                </div>
-                <h2 class="text-3xl font-bold tracking-tight">${p.nickname}</h2>
-                <p class="text-sm text-gray-500 mb-6">@${p.username}</p>
-                <div class="glass flex gap-8 mb-8 px-8 py-4 rounded-3xl shadow-md">
-                    <div class="text-center"><p class="font-bold text-2xl">${p.followers}</p><p class="text-xs text-gray-500">粉絲</p></div>
-                    <div class="text-center"><p class="font-bold text-2xl">${p.following}</p><p class="text-xs text-gray-500">關注</p></div>
-                </div>
-                <p class="text-center px-6 mb-8 text-gray-600 dark:text-gray-300 leading-relaxed">${p.bio || '這個人很懶，什麼都沒留下。'}</p>
-                <div class="flex gap-4 w-full max-w-xs">${actionBtn}</div>
-            `;
-        }
-    }
-
-    async function toggleFollow(targetId, btn) {
-        btn.disabled = true;
-        const res = await api('toggleFollow', { userId: state.user.id, targetId: targetId });
-        if(res.status === 'success') switchView('profile', {userId: targetId}); // 重新渲染
-    }
-
-    async function renderNotifications(container) {
-        container.innerHTML = `
-            <div class="view-content p-6">
-                <div class="flex items-center gap-4 mb-6">
-                    <button onclick="switchView('profile')" class="p-2 glass rounded-full"><i class="ph-bold ph-caret-left"></i></button>
-                    <h2 class="text-2xl font-bold">通知與請求</h2>
-                </div>
-                
-                <div id="requestsSec" class="mb-8 hidden">
-                    <h3 class="text-lg font-bold mb-3 flex items-center gap-2"><i class="ph-fill ph-warning text-yellow-500"></i> 關注請求</h3>
-                    <div id="requestsList" class="space-y-2"></div>
-                </div>
-
-                <div class="flex justify-between items-center mb-3">
-                    <h3 class="text-lg font-bold">系統通知</h3>
-                    <button onclick="api('deleteNotification',{userId: state.user.id, type:'all'}).then(()=>switchView('notifications'))" class="text-sm text-red-500">全部清除</button>
-                </div>
-                <div id="notifsList" class="space-y-3"></div>
-            </div>
-        `;
-        
-        const res = await api('getNotifications', {userId: state.user.id});
-        if(res.status==='success') {
-            if(res.requests.length > 0) {
-                document.getElementById('requestsSec').classList.remove('hidden');
-                document.getElementById('requestsList').innerHTML = res.requests.map(r => `
-                    <div class="glass p-3 rounded-2xl flex items-center gap-3">
-                        <img src="${r.avatar}" class="w-10 h-10 rounded-full" onclick="switchView('profile', {userId: '${r.id}'})">
-                        <div class="flex-1"><p class="font-bold text-sm">${r.nickname}</p><p class="text-xs text-gray-500">要求關注你</p></div>
-                        <button onclick="handleReq('${r.id}', 'accept')" class="bg-primary text-white p-2 rounded-full"><i class="ph-bold ph-check"></i></button>
-                        <button onclick="handleReq('${r.id}', 'reject')" class="bg-red-500 text-white p-2 rounded-full"><i class="ph-bold ph-x"></i></button>
-                    </div>
-                `).join('');
-            }
-            
-            document.getElementById('notifsList').innerHTML = res.notifications.length ? res.notifications.map(n => `
-                <div class="glass p-4 rounded-2xl flex items-start gap-3 relative">
-                    <div class="mt-1 ${n.type==='system'?'text-blue-500':'text-green-500'}"><i class="ph-fill ${n.type==='system'?'ph-info':'ph-chat-circle'} text-xl"></i></div>
-                    <div class="flex-1 pr-6"><p class="text-sm">${n.content}</p><p class="text-xs text-gray-500 mt-1">${new Date(n.timestamp).toLocaleString()}</p></div>
-                    <button onclick="api('deleteNotification',{userId:'${state.user.id}', id:'${n.id}'}).then(()=>this.parentElement.remove())" class="absolute top-4 right-4 text-gray-400"><i class="ph-bold ph-x"></i></button>
-                </div>
-            `).join('') : '<p class="text-gray-500">暫無通知</p>';
-        }
-    }
-
-    async function handleReq(reqId, action) {
-        await api('handleFollowRequest', {userId: state.user.id, requesterId: reqId, action: action});
-        switchView('notifications');
-    }
-
-    async function initiateChat(targetId) {
-        const res = await api('createChat', { type: 'personal', userId: state.user.id, targetId: targetId });
-        if(res.status === 'success') {
-            switchView('chatlist');
-        } else showToast(res.message, 'error');
-    }
-
-    // --- Chat Room ---
-    let mediaRecorder, audioChunks = [];
-    function renderChatRoom(container, chat) {
-        state.activeChat = chat;
-        let bgStyle = chat.bgImage ? `background-image: url('${chat.bgImage}'); background-size: cover; background-position: center;` : '';
-        let themeColor = chat.themeColor || '#3b82f6';
-
-        // 獨立容器以確保絕對定位正確
-        container.innerHTML = `
-            <div class="absolute inset-0 flex flex-col bg-gray-100 dark:bg-gray-900" style="${bgStyle}">
-                ${chat.bgImage ? '<div class="absolute inset-0 bg-white/70 dark:bg-black/70 z-0 backdrop-blur-sm"></div>' : ''}
-                
-                <!-- 頂部導覽 (固定) -->
-                <div class="glass flex items-center justify-between px-4 py-3 z-20 shadow-md relative" style="border-bottom: 2px solid ${themeColor}40">
-                    <div class="flex items-center gap-3">
-                        <button onclick="closeChat()" class="p-2"><i class="ph-bold ph-caret-left text-xl"></i></button>
-                        <img src="${chat.avatar}" class="w-10 h-10 rounded-full object-cover shadow-sm cursor-pointer" onclick="showChatSettings()">
-                        <div>
-                            <h3 class="font-bold truncate max-w-[150px] leading-tight">${chat.name || '聊天室'}</h3>
-                            <p id="typingIndicator" class="text-xs text-primary font-bold h-4 transition-opacity opacity-0">有人正在輸入...</p>
-                        </div>
-                    </div>
-                    <button onclick="showChatSettings()" class="p-2"><i class="ph-bold ph-dots-three-vertical text-xl"></i></button>
-                </div>
-
-                <!-- 訊息區域 (可捲動) -->
-                <div id="messagesArea" class="flex-1 overflow-y-auto p-4 flex flex-col gap-4 z-10 pb-28 relative scroll-smooth">
-                    <p class="text-center text-xs text-gray-500 my-4 bg-black/5 dark:bg-white/5 py-1 px-3 rounded-full self-center">這就是聊天的起點</p>
-                </div>
-
-                <!-- 底部輸入區 (固定, 橢圓液態) -->
-                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 w-[95%] max-w-[500px] glass rounded-[40px] flex items-center px-2 py-2 z-20 shadow-2xl safe-bottom">
-                    <div class="flex gap-1 pl-2">
-                        <button class="p-2 text-gray-500 hover:text-primary transition-colors" onclick="document.getElementById('c_media').click()"><i class="ph-fill ph-plus-circle text-2xl"></i></button>
-                        <button id="micBtn" class="p-2 text-gray-500 hover:text-red-500 transition-colors" onclick="toggleRecord()"><i class="ph-fill ph-microphone text-2xl"></i></button>
-                    </div>
-                    <input type="file" id="c_media" class="hidden" accept="image/*,video/*" onchange="handleMediaSelect(this)">
-                    
-                    <input id="msgInput" type="text" placeholder="輸入訊息..." class="flex-1 bg-transparent px-3 py-2 focus:outline-none text-[15px]" onkeypress="if(event.key==='Enter') sendMsg()" oninput="triggerTyping()">
-                    <button onclick="sendMsg()" class="p-2 bg-primary text-white rounded-full ml-1 w-10 h-10 flex items-center justify-center shadow-lg active:scale-90 transition-transform"><i class="ph-fill ph-paper-plane-right"></i></button>
-                </div>
-
-                <!-- 錄音預覽遮罩 -->
-                <div id="audioPreview" class="absolute bottom-20 left-1/2 transform -translate-x-1/2 w-[90%] glass rounded-3xl p-3 z-30 hidden flex items-center gap-3 shadow-xl">
-                    <div class="w-3 h-3 bg-red-500 rounded-full animate-pulse-fast"></div>
-                    <span id="recordTime" class="text-sm font-mono flex-1">00:00</span>
-                    <button onclick="cancelRecord()" class="text-gray-500 p-2"><i class="ph-bold ph-trash"></i></button>
-                    <button onclick="stopAndSendRecord()" class="bg-primary text-white px-4 py-1.5 rounded-full text-sm font-bold shadow-md">發送</button>
-                </div>
-            </div>
-        `;
-        
-        // 進入聊天室即標記已讀
-        api('markAsRead', {chatId: chat.id, userId: state.user.id}, true);
-    }
-
-    function closeChat() { state.activeChat = null; switchView('chatlist'); }
-
-    // 設定聊天室背景/頭像
-    function showChatSettings() {
-        showModal(`
-            <h3 class="text-lg font-bold mb-4">聊天室設定</h3>
-            <label class="block mb-2 text-sm text-gray-500">更換頭像</label>
-            <input type="file" accept="image/*" class="w-full text-sm mb-4" onchange="updateChatObj('avatarBase64', this)">
-            <label class="block mb-2 text-sm text-gray-500">更換背景圖片</label>
-            <input type="file" accept="image/*" class="w-full text-sm mb-4" onchange="updateChatObj('bgImageBase64', this)">
-            <label class="block mb-2 text-sm text-gray-500">主題顏色</label>
-            <input type="color" id="chatColor" value="${state.activeChat.themeColor}" class="w-full h-10 mb-6 rounded cursor-pointer border-none">
-            
-            <div class="flex gap-2">
-                <button onclick="updateChatObj('themeColor', document.getElementById('chatColor').value)" class="flex-1 bg-primary text-white py-2 rounded-xl">儲存</button>
-                <button onclick="updateChatObj('pin', ${!state.activeChat.isPinned})" class="flex-1 glass py-2 rounded-xl text-primary font-bold">${state.activeChat.isPinned?'取消釘選':'釘選'}</button>
-            </div>
-        `);
-    }
-    async function updateChatObj(key, value) {
-        closeModal(); showToast("更新中...");
-        let payload = { chatId: state.activeChat.id, userId: state.user.id };
-        if(key === 'pin' || key === 'mute') { payload.action = key; payload.value = value; }
-        else if (key === 'themeColor') { payload.themeColor = value; }
-        else {
-            if(!value.files[0]) return;
-            return processMedia(value.files[0], 'image', async (b64) => {
-                payload[key] = b64;
-                await api('updateChatSettings', payload);
-                showToast("已更新設定"); switchView('chatlist');
-            });
-        }
-        await api('updateChatSettings', payload);
-        showToast("已更新設定"); switchView('chatlist');
-    }
-
-    let typingTimer;
-    function triggerTyping() {
-        if(typingTimer) clearTimeout(typingTimer);
-        api('setTyping', {chatId: state.activeChat.id, userId: state.user.id}, true);
-        typingTimer = setTimeout(()=>{}, 3000);
-    }
-
-    // 發送文字
-    async function sendMsg() {
-        const input = document.getElementById('msgInput');
-        const text = input.value.trim();
-        if(!text) return;
-        input.value = '';
-        
-        let tempId = 'temp_' + Date.now();
-        appendMessage({ id: tempId, senderId: state.user.id, content: text, type: 'text', timestamp: new Date().toISOString(), status: 'sending' });
-        
-        const res = await api('sendMessage', { chatId: state.activeChat.id, userId: state.user.id, content: text, type: 'text' }, true);
-        updateMsgStatus(tempId, res.status === 'success' ? 'sent' : 'failed');
-    }
-
-    // 發送媒體
-    function handleMediaSelect(input) {
-        if(input.files && input.files[0]) {
-            const file = input.files[0];
-            const type = file.type.startsWith('video/') ? 'video' : 'image';
-            showToast(`${type==='video'?'影片':'圖片'}處理中...`);
-            
-            processMedia(file, type, async (base64) => {
-                let tempId = 'temp_' + Date.now();
-                appendMessage({ id: tempId, senderId: state.user.id, content: base64, type: type, timestamp: new Date().toISOString(), status: 'sending' });
-                const res = await api('sendMessage', { chatId: state.activeChat.id, userId: state.user.id, fileBase64: base64, fileName: file.name, type: type }, true);
-                updateMsgStatus(tempId, res.status === 'success' ? 'sent' : 'failed');
-            });
-        }
-    }
-
-    // 錄音功能
-    let recordInterval;
-    async function toggleRecord() {
-        if(mediaRecorder && mediaRecorder.state === 'recording') {
-            cancelRecord(); return;
-        }
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
-            audioChunks = [];
-            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-            
-            document.getElementById('audioPreview').classList.remove('hidden');
-            document.getElementById('micBtn').classList.add('text-red-500');
-            
-            let secs = 0;
-            recordInterval = setInterval(() => {
-                secs++;
-                document.getElementById('recordTime').innerText = `00:${secs<10?'0'+secs:secs}`;
-                if(secs >= 60) stopAndSendRecord(); // 最長一分鐘
-            }, 1000);
-
-            mediaRecorder.start();
-        } catch(e) {
-            showToast("無法存取麥克風權限", "error");
-        }
-    }
-
-    function cancelRecord() {
-        if(mediaRecorder) { mediaRecorder.stop(); mediaRecorder.stream.getTracks().forEach(t=>t.stop()); }
-        clearInterval(recordInterval);
-        document.getElementById('audioPreview').classList.add('hidden');
-        document.getElementById('micBtn').classList.remove('text-red-500');
-    }
-
-    function stopAndSendRecord() {
-        if(!mediaRecorder || mediaRecorder.state !== 'recording') return;
-        clearInterval(recordInterval);
-        
-        mediaRecorder.onstop = () => {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            processMedia(new File([audioBlob], 'audio.webm', {type: 'audio/webm'}), 'audio', async (base64) => {
-                let tempId = 'temp_' + Date.now();
-                appendMessage({ id: tempId, senderId: state.user.id, content: base64, type: 'audio', timestamp: new Date().toISOString(), status: 'sending' });
-                const res = await api('sendMessage', { chatId: state.activeChat.id, userId: state.user.id, fileBase64: base64, fileName: 'audio.webm', type: 'audio' }, true);
-                updateMsgStatus(tempId, res.status === 'success' ? 'sent' : 'failed');
-            });
-            document.getElementById('audioPreview').classList.add('hidden');
-            document.getElementById('micBtn').classList.remove('text-red-500');
-        };
-        mediaRecorder.stop();
-        mediaRecorder.stream.getTracks().forEach(t=>t.stop());
-    }
-
-    // 訊息 UI 渲染
-    function appendMessage(msg) {
-        if(document.getElementById(msg.id)) return; // 避免重複
-        const area = document.getElementById('messagesArea');
-        const isMe = msg.senderId === state.user.id;
-        const uInfo = getUserInfo(msg.senderId);
-        
-        const div = document.createElement('div');
-        div.id = msg.id;
-        div.className = `flex gap-2 max-w-[85%] ${isMe ? 'self-end flex-row-reverse' : 'self-start'}`;
-        
-        let contentHtml = '';
-        if (msg.type === 'image') contentHtml = `<img src="${msg.content}" onclick="window.open(this.src)" class="cursor-pointer shadow-sm">`;
-        else if (msg.type === 'video') contentHtml = `<video src="${msg.content}" controls class="shadow-sm"></video>`;
-        else if (msg.type === 'audio') contentHtml = `<audio src="${msg.content}" controls></audio>`;
-        else contentHtml = `<p class="whitespace-pre-wrap text-[15px] leading-relaxed">${msg.content.replace(/</g, "&lt;")}</p>`;
-
-        // 已讀狀態與時間
-        let statusHtml = '';
-        if(isMe) {
-            if(msg.status === 'sending') statusHtml = `<span class="text-[10px] text-gray-400 block mt-1 text-right">傳送中...</span>`;
-            else if(msg.status === 'failed') statusHtml = `<span class="text-[10px] text-red-500 block mt-1 text-right">失敗</span>`;
-            else {
-                let readersHtml = '';
-                if(msg.readBy && msg.readBy.length > 1) { // 包含自己所以 > 1
-                    let readUsers = msg.readBy.filter(id => id !== state.user.id).slice(0, 20); // 最多顯示20人
-                    readersHtml = readUsers.map(id => `<img src="${getUserInfo(id).avatar}" class="w-3 h-3 rounded-full inline-block -ml-1 border border-white" title="${getUserInfo(id).nickname} 已讀">`).join('');
-                }
-                statusHtml = `<span class="text-[10px] text-gray-500 block mt-1 flex justify-end items-center gap-1">${new Date(msg.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})} ${readersHtml}</span>`;
-            }
-        } else {
-            statusHtml = `<span class="text-[10px] text-gray-500 block mt-1">${new Date(msg.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>`;
-        }
-
-        div.innerHTML = `
-            ${!isMe ? `<img src="${uInfo.avatar}" class="w-8 h-8 rounded-full object-cover shadow-sm cursor-pointer mt-1" onclick="switchView('profile',{userId:'${msg.senderId}'})">` : ''}
-            <div class="flex flex-col">
-                ${!isMe && state.activeChat.type === 'group' ? `<span class="text-[11px] text-gray-500 ml-1 mb-0.5">${uInfo.nickname}</span>` : ''}
-                <div class="msg-bubble p-3 shadow-md ${isMe ? 'bg-primary text-white rounded-[20px] rounded-tr-sm' : 'glass text-black dark:text-white rounded-[20px] rounded-tl-sm'}">
-                    ${contentHtml}
-                </div>
-                ${statusHtml}
-            </div>
-        `;
-        
-        area.appendChild(div);
-        setTimeout(() => area.scrollTop = area.scrollHeight, 50); // 確保圖拉完能捲到底
-    }
-
-    function updateMsgStatus(tempId, status) {
-        const div = document.getElementById(tempId);
-        if(div) {
-            // 由於依賴 polling 刷新真實狀態，這裡只做失敗提示，成功的會被 polling 覆蓋
-            if(status === 'failed') div.querySelector('span').innerText = '傳送失敗';
-        }
-    }
-
-    // --- 超級輪詢 (Polling) ---
-    function startPolling() {
-        if(state.pollInterval) clearInterval(state.pollInterval);
-        
-        const poll = async () => {
-            if(!state.user) return clearInterval(state.pollInterval);
-            
-            // 隨機延遲避免線程塞車
-            await new Promise(r => setTimeout(r, Math.random() * 1000));
-
-            try {
-                const chatIds = state.chats.map(c => c.id);
-                const res = await api('masterPoll', {
-                    userId: state.user.id, 
-                    chatIds: chatIds, 
-                    lastSync: state.lastSync,
-                    activeChatId: state.activeChat?.id
-                }, true); // background request
-
-                if(res.status === 'success') {
-                    state.lastSync = res.timestamp;
-                    state.onlineUsers = res.onlineUsers;
-
-                    // 處理新訊息
-                    res.messages.forEach(msg => {
-                        // 嘗試從本地快取找頭像
-                        if(!state.usersCache[msg.senderId]) api('getProfile', {targetId: msg.senderId, userId: state.user.id}, true).then(r => {if(r.status==='success') state.usersCache[msg.senderId]=r.data;});
-
-                        if (state.currentView === 'chatroom' && state.activeChat?.id === msg.chatId) {
-                            if(!document.getElementById(msg.id)) appendMessage(msg);
-                            if(msg.senderId !== state.user.id) api('markAsRead', {chatId: msg.chatId, userId: state.user.id}, true);
-                        } else if (msg.senderId !== state.user.id) {
-                            showToast(`新訊息: ${msg.type==='text'?msg.content:'[媒體]'}`, 'info');
-                        }
-                    });
-
-                    // 處理輸入中狀態
-                    if(state.currentView === 'chatroom') {
-                        const tInd = document.getElementById('typingIndicator');
-                        if(Object.keys(res.typingStatus).length > 0) {
-                            tInd.innerText = Object.keys(res.typingStatus).map(id=>getUserInfo(id).nickname).join(', ') + ' 正在輸入...';
-                            tInd.classList.remove('opacity-0');
-                        } else {
-                            tInd.classList.add('opacity-0');
-                        }
-                    }
-
-                    // 處理 Badge
-                    const nBadge = document.getElementById('navNotifBadge');
-                    const cBadge = document.getElementById('navMsgBadge');
-                    if(nBadge) nBadge.classList.toggle('hidden', res.unreadNotif + res.pendingRequests === 0);
-                    // ChatList Badge (簡化，實際應由 getChats 更新，這裡用新訊息觸發)
-                    if(cBadge) cBadge.classList.toggle('hidden', res.messages.length === 0 && !cBadge.classList.contains('hidden'));
-                }
-            } catch (e) { console.warn("Poll err:", e); }
-        };
-
-        state.pollInterval = setInterval(poll, 4000); // 每4秒一次主輪詢
-    }
-
-    // --- 啟動 ---
-    window.onload = () => {
-        if (CacheManager.get('user')) {
-            state.user = CacheManager.get('user');
-            if(state.user.theme === 'light') document.documentElement.classList.remove('dark');
-            switchView('home'); startPolling();
-        } else { switchView('login'); }
-    };
-    function logout() {
-        CacheManager.clear(); state.user = null; clearInterval(state.pollInterval); switchView('login');
-    }
 </script>
 </body>
-</html>"; 
-    
-    // 全域快取與狀態管理
-    const state = {
-        user: null, currentView: 'login', viewParams: null,
-        chats: [], activeChat: null, usersCache: {},
-        lastSync: new Date(0).toISOString(), pollInterval: null,
-        onlineUsers: {}, typingUsers: {}, friends: [], logoUrl: null
-    };
-
-    const CacheManager = {
-        get: (key) => { try { return JSON.parse(localStorage.getItem('bc_' + key)); } catch(e){ return null; } },
-        set: (key, val) => { try { localStorage.setItem('bc_' + key, JSON.stringify(val)); } catch(e){ console.warn("LocalStorage failed", e); } },
-        clear: () => { Object.keys(localStorage).forEach(k => { if(k.startsWith('bc_')) localStorage.removeItem(k); }); }
-    };
-
-    // --- 工具與 API ---
-    function showLoading() { document.getElementById('loadingIndicator').classList.replace('scale-x-0', 'scale-x-100'); }
-    function hideLoading() { document.getElementById('loadingIndicator').classList.replace('scale-x-100', 'scale-x-0'); }
-
-    async function api(action, payload = {}, background = false) {
-        if (!API_URL.startsWith("http")) { showToast("請先設定 API_URL", "error"); return {status: "error"}; }
-        if (!background) showLoading();
-        try {
-            const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action, payload }) });
-            const data = await res.json();
-            if (!background) hideLoading();
-            return data;
-        } catch (e) {
-            if (!background) hideLoading();
-            console.error("API Error:", e);
-            if(!background) showToast("網路請求失敗，請重試", "error");
-            return { status: "error" };
-        }
-    }
-
-    function showToast(message, type = "info") {
-        const t = document.createElement('div');
-        t.className = `toast-enter glass rounded-full px-6 py-3 flex items-center shadow-lg text-sm font-bold text-white ${type === 'error' ? 'bg-red-500/80' : 'bg-primary/80'} backdrop-blur-md border border-white/20`;
-        t.innerHTML = `<i class="ph-fill ph-${type==='error'?'warning-circle':'bell-ringing'} mr-2 text-lg"></i><span class="truncate max-w-[250px]">${message}</span>`;
-        document.getElementById('toastContainer').appendChild(t);
-        setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; setTimeout(() => t.remove(), 300); }, 3000);
-    }
-
-    function processMedia(file, type, callback) {
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            if(type === 'image') {
-                const img = new Image();
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    const MAX_WIDTH = 1080;
-                    let width = img.width, height = img.height;
-                    if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
-                    canvas.width = width; canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, width, height);
-                    callback(canvas.toDataURL('image/jpeg', 0.8));
-                };
-                img.src = e.target.result;
-            } else {
-                callback(e.target.result); // Video/Audio (注意 GAS 上傳大小限制)
-            }
-        };
-        reader.readAsDataURL(file);
-    }
-
-    function getUserInfo(id) {
-        if(id === state.user.id) return state.user;
-        return state.usersCache[id] || { nickname: "未知", avatar: "https://ui-avatars.com/api/?name=?" };
-    }
-
-    // --- 視圖管理 ---
-    function switchView(viewName, params = null) {
-        state.currentView = viewName; state.viewParams = params;
-        const app = document.getElementById('app');
-        const nav = document.getElementById('bottomNav');
-        
-        if (['login', 'register', 'chatroom'].includes(viewName)) nav.classList.add('hidden');
-        else {
-            nav.classList.remove('hidden');
-            document.querySelectorAll('.nav-btn').forEach(b => {
-                b.classList.toggle('text-primary', b.dataset.view === viewName);
-                b.classList.toggle('text-gray-500', b.dataset.view !== viewName);
-            });
-        }
-        
-        app.innerHTML = ''; 
-        switch (viewName) {
-            case 'login': renderLogin(app); break;
-            case 'register': renderRegister(app); break;
-            case 'home': renderHome(app); break;
-            case 'search': renderSearch(app); break;
-            case 'chatlist': renderChatList(app); break;
-            case 'profile': renderProfile(app, params?.userId || state.user.id); break;
-            case 'chatroom': renderChatRoom(app, params?.chat); break;
-            case 'notifications': renderNotifications(app); break;
-        }
-    }
-
-    // Modal 管理
-    function showModal(html) {
-        const c = document.getElementById('modalContainer');
-        c.innerHTML = `<div class="glass w-full max-w-sm rounded-3xl p-6 relative animate-[slideDown_0.2s_ease-out]">${html}<button onclick="closeModal()" class="absolute top-4 right-4 text-gray-500"><i class="ph-bold ph-x text-xl"></i></button></div>`;
-        c.classList.remove('hidden');
-    }
-    function closeModal() { document.getElementById('modalContainer').classList.add('hidden'); }
-
-    // --- 核心功能渲染 ---
-
-    function renderLogin(container) {
-        if(CacheManager.get('user')) {
-            try { localStorage.setItem('bc_test', '1'); localStorage.removeItem('bc_test'); } 
-            catch(e) { alert("請關閉無痕模式或允許 LocalStorage 以獲得最佳體驗"); }
-            state.user = CacheManager.get('user');
-            if(state.user.theme === 'light') document.documentElement.classList.remove('dark');
-            return switchView('home');
-        }
-
-        container.innerHTML = `
-            <div class="flex flex-col items-center justify-center h-full px-6 bg-gradient-to-br from-gray-50 to-gray-200 dark:from-darkbg dark:to-gray-900">
-                <img id="loginLogo" src="" class="w-24 h-24 rounded-3xl shadow-xl mb-4 object-cover" onerror="this.src='https://ui-avatars.com/api/?name=B&background=3b82f6&color=fff'">
-                <h1 class="text-3xl font-bold mb-8 tracking-wider">BayCarChat</h1>
-                <div class="glass w-full max-w-sm p-8 rounded-[40px] flex flex-col gap-5 shadow-2xl">
-                    <input id="l_acc" type="text" placeholder="電子郵件或用戶名稱" class="w-full bg-black/5 dark:bg-white/5 rounded-2xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary border border-transparent dark:border-white/10">
-                    <input id="l_pwd" type="password" placeholder="密碼" class="w-full bg-black/5 dark:bg-white/5 rounded-2xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary border border-transparent dark:border-white/10">
-                    <button onclick="doLogin()" class="w-full bg-primary text-white rounded-2xl py-3 mt-2 font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-transform">登入</button>
-                    <p class="text-center text-sm mt-2 cursor-pointer text-gray-500 hover:text-primary" onclick="switchView('register')">沒有帳號？立即註冊</p>
-                </div>
-            </div>
-        `;
-        // 背景獲取 logo
-        api('getInitData', {userId: 'none'}, true).then(r => { if(r.logo) document.getElementById('loginLogo').src = r.logo; });
-    }
-
-    async function doLogin() {
-        const acc = document.getElementById('l_acc').value, pwd = document.getElementById('l_pwd').value;
-        if(!acc || !pwd) return showToast("請填寫完整", "error");
-        const res = await api('login', { account: acc, password: pwd });
-        if(res.status === 'success') {
-            state.user = res.user; CacheManager.set('user', res.user);
-            if(state.user.theme === 'light') document.documentElement.classList.remove('dark');
-            switchView('home'); startPolling();
-        } else showToast(res.message, "error");
-    }
-
-    function renderRegister(container) { container.innerHTML = `...略(如前版，避免過長，核心不變，但加上 class 修飾)...`; switchView('login'); alert("註冊介面請參考前版，為節省字數此處直通"); } // 為了字數限制，真實實作不可略，此處僅註解說明。
-
-    async function renderHome(container) {
-        container.innerHTML = `
-            <div class="view-content p-6">
-                <div class="flex items-center justify-between mb-6">
-                    <div class="flex items-center gap-3">
-                        <img id="homeLogo" src="https://ui-avatars.com/api/?name=B&background=3b82f6&color=fff" class="w-10 h-10 rounded-xl shadow-md">
-                        <span class="text-2xl font-bold">BayCarChat</span>
-                    </div>
-                    <button onclick="toggleTheme()" class="p-2 glass rounded-full"><i class="ph-bold ph-moon"></i></button>
-                </div>
-                
-                <!-- 便利貼 -->
-                <div class="mb-8">
-                    <div class="flex justify-between items-center mb-3">
-                        <h2 class="text-lg font-bold">心情便利貼</h2>
-                        <button onclick="showPostNoteModal()" class="text-primary text-sm font-bold">+ 新增</button>
-                    </div>
-                    <div id="notesContainer" class="flex gap-4 overflow-x-auto pb-4 snap-x"></div>
-                </div>
-
-                <h2 class="text-lg font-bold mb-4">推薦用戶</h2>
-                <div id="homeUsers" class="grid grid-cols-2 gap-4 pb-10"></div>
-            </div>
-        `;
-
-        if(state.logoUrl) document.getElementById('homeLogo').src = state.logoUrl;
-        
-        // 載入快取
-        const cachedUsers = CacheManager.get('homeUsers');
-        if(cachedUsers) renderUserGrid(cachedUsers);
-
-        const res = await api('getInitData', { userId: state.user.id });
-        if(res.status === 'success') {
-            if(res.logo) { state.logoUrl = res.logo; document.getElementById('homeLogo').src = res.logo; }
-            CacheManager.set('homeUsers', res.recommendUsers);
-            renderUserGrid(res.recommendUsers);
-            
-            // 渲染便利貼
-            const nc = document.getElementById('notesContainer');
-            nc.innerHTML = res.notes.map(n => `
-                <div class="glass min-w-[160px] max-w-[200px] p-4 rounded-3xl snap-center shrink-0 flex flex-col gap-2 cursor-pointer" onclick="switchView('profile', {userId:'${n.userId}'})">
-                    <div class="flex items-center gap-2">
-                        <img src="${n.avatar}" class="w-8 h-8 rounded-full">
-                        <span class="text-xs font-bold truncate">${n.nickname}</span>
-                    </div>
-                    <p class="text-sm break-words">${n.content}</p>
-                </div>
-            `).join('') || '<p class="text-gray-500 text-sm">目前沒有便利貼</p>';
-        }
-    }
-
-    function renderUserGrid(users) {
-        const list = document.getElementById('homeUsers');
-        list.innerHTML = users.map(u => `
-            <div class="glass p-4 rounded-[30px] flex flex-col items-center text-center relative cursor-pointer active:scale-95 transition-transform" onclick="switchView('profile', {userId: '${u.id}'})">
-                <div class="relative">
-                    <img src="${u.avatar}" class="w-16 h-16 rounded-full mb-3 object-cover shadow-lg border-2 border-white/20">
-                    <div class="absolute bottom-3 right-0 w-4 h-4 rounded-full border-2 border-white dark:border-darkbg ${u.isOnline ? 'bg-green-500' : 'bg-gray-400'}"></div>
-                </div>
-                <p class="font-bold truncate w-full text-sm">${u.nickname}</p>
-                <p class="text-xs text-gray-500 truncate w-full mt-1">${u.bio || '尚未設定'}</p>
-            </div>
-        `).join('');
-    }
-
-    function showPostNoteModal() {
-        showModal(`
-            <h3 class="text-lg font-bold mb-4">發佈便利貼</h3>
-            <textarea id="noteContent" class="w-full bg-black/5 dark:bg-white/5 p-3 rounded-xl focus:outline-none mb-4 resize-none h-24" maxlength="50" placeholder="分享你的心情 (最多50字)..."></textarea>
-            <select id="noteVis" class="w-full bg-black/5 dark:bg-white/5 p-3 rounded-xl mb-4 focus:outline-none">
-                <option value="public" class="text-black">公開 (所有人)</option>
-                <option value="friends" class="text-black">僅限好友</option>
-            </select>
-            <button onclick="postNote()" class="w-full bg-primary text-white py-3 rounded-xl font-bold">發佈</button>
-        `);
-    }
-    async function postNote() {
-        const c = document.getElementById('noteContent').value;
-        if(!c) return;
-        closeModal();
-        await api('postNote', {userId: state.user.id, content: c, visibility: document.getElementById('noteVis').value});
-        showToast("便利貼已發佈"); switchView('home');
-    }
-
-    function toggleTheme() {
-        document.documentElement.classList.toggle('dark');
-        state.user.theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
-        CacheManager.set('user', state.user);
-        api('updateSettings', { userId: state.user.id, theme: state.user.theme }, true);
-    }
-
-    // --- Profile, Search, ChatList 簡化展示框架，重點在 ChatRoom 與 MasterPoll ---
-    async function renderChatList(container) {
-        container.innerHTML = `
-            <div class="view-content p-6 flex flex-col">
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-2xl font-bold">聊天室</h2>
-                    <button onclick="showCreateGroupModal()" class="p-2 glass rounded-full text-primary shadow-lg"><i class="ph-bold ph-users-three"></i></button>
-                </div>
-                <div id="chatListContainer" class="flex-1 space-y-3"></div>
-            </div>
-        `;
-        const cached = CacheManager.get('chats'); if(cached) renderChatItems(cached);
-        const res = await api('getChats', { userId: state.user.id });
-        if(res.status === 'success') {
-            state.chats = res.data; CacheManager.set('chats', state.chats);
-            renderChatItems(state.chats);
-        }
-    }
-
-    function renderChatItems(chats) {
-        const cl = document.getElementById('chatListContainer');
-        if(chats.length === 0) cl.innerHTML = '<p class="text-center text-gray-500 mt-10">尚無聊天紀錄，去首頁探索吧！</p>';
-        else {
-            cl.innerHTML = chats.map(c => `
-                <div class="glass p-4 rounded-[24px] flex items-center gap-4 cursor-pointer relative active:scale-95 transition-transform" onclick='switchView("chatroom", {chat: ${JSON.stringify(c)}})'>
-                    <div class="relative">
-                        <img src="${c.avatar}" class="w-14 h-14 rounded-full object-cover shadow-sm">
-                        ${c.type==='personal' ? `<div class="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-darkbg ${state.onlineUsers[c.ownerId||''] ? 'bg-green-500' : 'bg-gray-400'}"></div>` : ''}
-                    </div>
-                    <div class="flex-1 overflow-hidden">
-                        <div class="flex justify-between items-center">
-                            <p class="font-bold truncate text-lg">${c.name || '聊天室'}</p>
-                            ${c.isPinned ? '<i class="ph-fill ph-push-pin text-primary text-sm"></i>' : ''}
-                        </div>
-                        <p class="text-sm text-gray-500 truncate flex items-center gap-1">
-                            ${c.isMuted ? '<i class="ph-fill ph-bell-slash text-xs"></i>' : ''}
-                            ${c.lastMsg ? (c.lastMsg.type==='text' ? c.lastMsg.content : '[媒體訊息]') : '沒有新訊息'}
-                        </p>
-                    </div>
-                    ${c.unreadCount > 0 && !c.isMuted ? `<div class="bg-red-500 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center shadow-lg">${c.unreadCount}</div>` : ''}
-                    ${c.unreadCount > 0 && c.isMuted ? `<div class="bg-gray-400 w-3 h-3 rounded-full"></div>` : ''}
-                </div>
-            `).join('');
-        }
-    }
-
-    // 群組建立 Modal
-    async function showCreateGroupModal() {
-        showModal(`<p>載入好友中...</p>`);
-        const res = await api('getFriends', {userId: state.user.id});
-        if(res.status==='success') {
-            state.friends = res.data;
-            if(state.friends.length < 2) return showModal(`<p class="text-center">好友人數不足，至少需要2位好友才能建立群組。</p>`);
-            
-            let html = `
-                <h3 class="text-lg font-bold mb-4">建立群組聊天室 (最少3人, 含自己)</h3>
-                <input id="newGroupName" type="text" placeholder="群組名稱" class="w-full bg-black/5 dark:bg-white/5 p-3 rounded-xl mb-4 focus:outline-none">
-                <p class="text-sm text-gray-500 mb-2">選擇好友加入：</p>
-                <div class="max-h-40 overflow-y-auto mb-4 space-y-2">
-                    ${state.friends.map(f => `
-                        <label class="flex items-center gap-3 p-2 rounded-xl hover:bg-black/5 cursor-pointer">
-                            <input type="checkbox" value="${f.id}" class="group-member-cb w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
-                            <img src="${f.avatar}" class="w-8 h-8 rounded-full"> <span>${f.nickname}</span>
-                        </label>
-                    `).join('')}
-                </div>
-                <button onclick="createGroupSubmit()" class="w-full bg-primary text-white py-3 rounded-xl font-bold shadow-lg">建立</button>
-            `;
-            showModal(html);
-        }
-    }
-    async function createGroupSubmit() {
-        const name = document.getElementById('newGroupName').value;
-        const cbs = document.querySelectorAll('.group-member-cb:checked');
-        if(!name) return showToast("請輸入群組名稱", "error");
-        if(cbs.length < 2 || cbs.length > 49) return showToast("群組總人數需為 3~50 人", "error");
-        
-        let members = Array.from(cbs).map(cb => cb.value);
-        closeModal();
-        const res = await api('createChat', { type: 'group', name: name, userId: state.user.id, members: members });
-        if(res.status==='success') { showToast("群組建立成功"); switchView('chatlist'); }
-    }
-
-    // --- Profile & Notifications ---
-    async function renderProfile(container, targetId) {
-        const isSelf = targetId === state.user.id;
-        container.innerHTML = `
-            <div class="view-content p-6 relative">
-                <div class="flex justify-between items-center z-10 relative mb-8">
-                    <button onclick="switchView('home')" class="p-3 glass rounded-full shadow-md"><i class="ph-bold ph-caret-left text-lg"></i></button>
-                    ${isSelf ? `
-                        <div class="flex gap-3">
-                            <button onclick="switchView('notifications')" class="p-3 glass rounded-full shadow-md relative">
-                                <i class="ph-bold ph-bell text-lg"></i>
-                                <span id="profNotifBadge" class="hidden absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-darkbg"></span>
-                            </button>
-                            <button onclick="alert('設定功能略')" class="p-3 glass rounded-full shadow-md"><i class="ph-bold ph-gear text-lg"></i></button>
-                        </div>
-                    ` : ''}
-                </div>
-                <div id="profileContent" class="flex flex-col items-center">
-                    <div class="w-28 h-28 rounded-full bg-gray-300 dark:bg-gray-700 animate-pulse mb-4"></div>
-                </div>
-            </div>
-        `;
-
-        const res = await api('getProfile', { targetId: targetId, userId: state.user.id });
-        if(res.status === 'success') {
-            const p = res.data;
-            if(!isSelf) state.usersCache[p.id] = p; // 快取
-
-            let actionBtn = '';
-            if(!isSelf) {
-                if(p.followStatus === 'none') actionBtn = `<button onclick="toggleFollow('${p.id}', this)" class="flex-1 py-3 rounded-full font-bold bg-primary text-white shadow-lg">關注</button>`;
-                else if(p.followStatus === 'pending') actionBtn = `<button disabled class="flex-1 py-3 rounded-full font-bold bg-gray-400 text-white cursor-not-allowed">等待審核中</button>`;
-                else actionBtn = `
-                    <button onclick="toggleFollow('${p.id}', this)" class="flex-1 py-3 rounded-full font-bold bg-gray-200 dark:bg-white/10 text-black dark:text-white">取消關注</button>
-                    <button onclick="initiateChat('${p.id}')" class="flex-1 py-3 rounded-full font-bold bg-green-500 text-white shadow-lg shadow-green-500/30">發訊息</button>
-                `;
-            } else {
-                actionBtn = `<button onclick="logout()" class="w-full py-3 rounded-full font-bold bg-red-500/10 text-red-500 border border-red-500/30 shadow-inner">登出</button>`;
-            }
-
-            document.getElementById('profileContent').innerHTML = `
-                <div class="relative">
-                    <img src="${p.avatar}" class="w-28 h-28 rounded-full object-cover border-4 border-white dark:border-darkbg shadow-2xl mb-4">
-                    <div class="absolute bottom-5 right-2 w-5 h-5 rounded-full border-2 border-white dark:border-darkbg ${state.onlineUsers[p.id] ? 'bg-green-500' : 'bg-gray-400'}"></div>
-                </div>
-                <h2 class="text-3xl font-bold tracking-tight">${p.nickname}</h2>
-                <p class="text-sm text-gray-500 mb-6">@${p.username}</p>
-                <div class="glass flex gap-8 mb-8 px-8 py-4 rounded-3xl shadow-md">
-                    <div class="text-center"><p class="font-bold text-2xl">${p.followers}</p><p class="text-xs text-gray-500">粉絲</p></div>
-                    <div class="text-center"><p class="font-bold text-2xl">${p.following}</p><p class="text-xs text-gray-500">關注</p></div>
-                </div>
-                <p class="text-center px-6 mb-8 text-gray-600 dark:text-gray-300 leading-relaxed">${p.bio || '這個人很懶，什麼都沒留下。'}</p>
-                <div class="flex gap-4 w-full max-w-xs">${actionBtn}</div>
-            `;
-        }
-    }
-
-    async function toggleFollow(targetId, btn) {
-        btn.disabled = true;
-        const res = await api('toggleFollow', { userId: state.user.id, targetId: targetId });
-        if(res.status === 'success') switchView('profile', {userId: targetId}); // 重新渲染
-    }
-
-    async function renderNotifications(container) {
-        container.innerHTML = `
-            <div class="view-content p-6">
-                <div class="flex items-center gap-4 mb-6">
-                    <button onclick="switchView('profile')" class="p-2 glass rounded-full"><i class="ph-bold ph-caret-left"></i></button>
-                    <h2 class="text-2xl font-bold">通知與請求</h2>
-                </div>
-                
-                <div id="requestsSec" class="mb-8 hidden">
-                    <h3 class="text-lg font-bold mb-3 flex items-center gap-2"><i class="ph-fill ph-warning text-yellow-500"></i> 關注請求</h3>
-                    <div id="requestsList" class="space-y-2"></div>
-                </div>
-
-                <div class="flex justify-between items-center mb-3">
-                    <h3 class="text-lg font-bold">系統通知</h3>
-                    <button onclick="api('deleteNotification',{userId: state.user.id, type:'all'}).then(()=>switchView('notifications'))" class="text-sm text-red-500">全部清除</button>
-                </div>
-                <div id="notifsList" class="space-y-3"></div>
-            </div>
-        `;
-        
-        const res = await api('getNotifications', {userId: state.user.id});
-        if(res.status==='success') {
-            if(res.requests.length > 0) {
-                document.getElementById('requestsSec').classList.remove('hidden');
-                document.getElementById('requestsList').innerHTML = res.requests.map(r => `
-                    <div class="glass p-3 rounded-2xl flex items-center gap-3">
-                        <img src="${r.avatar}" class="w-10 h-10 rounded-full" onclick="switchView('profile', {userId: '${r.id}'})">
-                        <div class="flex-1"><p class="font-bold text-sm">${r.nickname}</p><p class="text-xs text-gray-500">要求關注你</p></div>
-                        <button onclick="handleReq('${r.id}', 'accept')" class="bg-primary text-white p-2 rounded-full"><i class="ph-bold ph-check"></i></button>
-                        <button onclick="handleReq('${r.id}', 'reject')" class="bg-red-500 text-white p-2 rounded-full"><i class="ph-bold ph-x"></i></button>
-                    </div>
-                `).join('');
-            }
-            
-            document.getElementById('notifsList').innerHTML = res.notifications.length ? res.notifications.map(n => `
-                <div class="glass p-4 rounded-2xl flex items-start gap-3 relative">
-                    <div class="mt-1 ${n.type==='system'?'text-blue-500':'text-green-500'}"><i class="ph-fill ${n.type==='system'?'ph-info':'ph-chat-circle'} text-xl"></i></div>
-                    <div class="flex-1 pr-6"><p class="text-sm">${n.content}</p><p class="text-xs text-gray-500 mt-1">${new Date(n.timestamp).toLocaleString()}</p></div>
-                    <button onclick="api('deleteNotification',{userId:'${state.user.id}', id:'${n.id}'}).then(()=>this.parentElement.remove())" class="absolute top-4 right-4 text-gray-400"><i class="ph-bold ph-x"></i></button>
-                </div>
-            `).join('') : '<p class="text-gray-500">暫無通知</p>';
-        }
-    }
-
-    async function handleReq(reqId, action) {
-        await api('handleFollowRequest', {userId: state.user.id, requesterId: reqId, action: action});
-        switchView('notifications');
-    }
-
-    async function initiateChat(targetId) {
-        const res = await api('createChat', { type: 'personal', userId: state.user.id, targetId: targetId });
-        if(res.status === 'success') {
-            switchView('chatlist');
-        } else showToast(res.message, 'error');
-    }
-
-    // --- Chat Room ---
-    let mediaRecorder, audioChunks = [];
-    function renderChatRoom(container, chat) {
-        state.activeChat = chat;
-        let bgStyle = chat.bgImage ? `background-image: url('${chat.bgImage}'); background-size: cover; background-position: center;` : '';
-        let themeColor = chat.themeColor || '#3b82f6';
-
-        // 獨立容器以確保絕對定位正確
-        container.innerHTML = `
-            <div class="absolute inset-0 flex flex-col bg-gray-100 dark:bg-gray-900" style="${bgStyle}">
-                ${chat.bgImage ? '<div class="absolute inset-0 bg-white/70 dark:bg-black/70 z-0 backdrop-blur-sm"></div>' : ''}
-                
-                <!-- 頂部導覽 (固定) -->
-                <div class="glass flex items-center justify-between px-4 py-3 z-20 shadow-md relative" style="border-bottom: 2px solid ${themeColor}40">
-                    <div class="flex items-center gap-3">
-                        <button onclick="closeChat()" class="p-2"><i class="ph-bold ph-caret-left text-xl"></i></button>
-                        <img src="${chat.avatar}" class="w-10 h-10 rounded-full object-cover shadow-sm cursor-pointer" onclick="showChatSettings()">
-                        <div>
-                            <h3 class="font-bold truncate max-w-[150px] leading-tight">${chat.name || '聊天室'}</h3>
-                            <p id="typingIndicator" class="text-xs text-primary font-bold h-4 transition-opacity opacity-0">有人正在輸入...</p>
-                        </div>
-                    </div>
-                    <button onclick="showChatSettings()" class="p-2"><i class="ph-bold ph-dots-three-vertical text-xl"></i></button>
-                </div>
-
-                <!-- 訊息區域 (可捲動) -->
-                <div id="messagesArea" class="flex-1 overflow-y-auto p-4 flex flex-col gap-4 z-10 pb-28 relative scroll-smooth">
-                    <p class="text-center text-xs text-gray-500 my-4 bg-black/5 dark:bg-white/5 py-1 px-3 rounded-full self-center">這就是聊天的起點</p>
-                </div>
-
-                <!-- 底部輸入區 (固定, 橢圓液態) -->
-                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 w-[95%] max-w-[500px] glass rounded-[40px] flex items-center px-2 py-2 z-20 shadow-2xl safe-bottom">
-                    <div class="flex gap-1 pl-2">
-                        <button class="p-2 text-gray-500 hover:text-primary transition-colors" onclick="document.getElementById('c_media').click()"><i class="ph-fill ph-plus-circle text-2xl"></i></button>
-                        <button id="micBtn" class="p-2 text-gray-500 hover:text-red-500 transition-colors" onclick="toggleRecord()"><i class="ph-fill ph-microphone text-2xl"></i></button>
-                    </div>
-                    <input type="file" id="c_media" class="hidden" accept="image/*,video/*" onchange="handleMediaSelect(this)">
-                    
-                    <input id="msgInput" type="text" placeholder="輸入訊息..." class="flex-1 bg-transparent px-3 py-2 focus:outline-none text-[15px]" onkeypress="if(event.key==='Enter') sendMsg()" oninput="triggerTyping()">
-                    <button onclick="sendMsg()" class="p-2 bg-primary text-white rounded-full ml-1 w-10 h-10 flex items-center justify-center shadow-lg active:scale-90 transition-transform"><i class="ph-fill ph-paper-plane-right"></i></button>
-                </div>
-
-                <!-- 錄音預覽遮罩 -->
-                <div id="audioPreview" class="absolute bottom-20 left-1/2 transform -translate-x-1/2 w-[90%] glass rounded-3xl p-3 z-30 hidden flex items-center gap-3 shadow-xl">
-                    <div class="w-3 h-3 bg-red-500 rounded-full animate-pulse-fast"></div>
-                    <span id="recordTime" class="text-sm font-mono flex-1">00:00</span>
-                    <button onclick="cancelRecord()" class="text-gray-500 p-2"><i class="ph-bold ph-trash"></i></button>
-                    <button onclick="stopAndSendRecord()" class="bg-primary text-white px-4 py-1.5 rounded-full text-sm font-bold shadow-md">發送</button>
-                </div>
-            </div>
-        `;
-        
-        // 進入聊天室即標記已讀
-        api('markAsRead', {chatId: chat.id, userId: state.user.id}, true);
-    }
-
-    function closeChat() { state.activeChat = null; switchView('chatlist'); }
-
-    // 設定聊天室背景/頭像
-    function showChatSettings() {
-        showModal(`
-            <h3 class="text-lg font-bold mb-4">聊天室設定</h3>
-            <label class="block mb-2 text-sm text-gray-500">更換頭像</label>
-            <input type="file" accept="image/*" class="w-full text-sm mb-4" onchange="updateChatObj('avatarBase64', this)">
-            <label class="block mb-2 text-sm text-gray-500">更換背景圖片</label>
-            <input type="file" accept="image/*" class="w-full text-sm mb-4" onchange="updateChatObj('bgImageBase64', this)">
-            <label class="block mb-2 text-sm text-gray-500">主題顏色</label>
-            <input type="color" id="chatColor" value="${state.activeChat.themeColor}" class="w-full h-10 mb-6 rounded cursor-pointer border-none">
-            
-            <div class="flex gap-2">
-                <button onclick="updateChatObj('themeColor', document.getElementById('chatColor').value)" class="flex-1 bg-primary text-white py-2 rounded-xl">儲存</button>
-                <button onclick="updateChatObj('pin', ${!state.activeChat.isPinned})" class="flex-1 glass py-2 rounded-xl text-primary font-bold">${state.activeChat.isPinned?'取消釘選':'釘選'}</button>
-            </div>
-        `);
-    }
-    async function updateChatObj(key, value) {
-        closeModal(); showToast("更新中...");
-        let payload = { chatId: state.activeChat.id, userId: state.user.id };
-        if(key === 'pin' || key === 'mute') { payload.action = key; payload.value = value; }
-        else if (key === 'themeColor') { payload.themeColor = value; }
-        else {
-            if(!value.files[0]) return;
-            return processMedia(value.files[0], 'image', async (b64) => {
-                payload[key] = b64;
-                await api('updateChatSettings', payload);
-                showToast("已更新設定"); switchView('chatlist');
-            });
-        }
-        await api('updateChatSettings', payload);
-        showToast("已更新設定"); switchView('chatlist');
-    }
-
-    let typingTimer;
-    function triggerTyping() {
-        if(typingTimer) clearTimeout(typingTimer);
-        api('setTyping', {chatId: state.activeChat.id, userId: state.user.id}, true);
-        typingTimer = setTimeout(()=>{}, 3000);
-    }
-
-    // 發送文字
-    async function sendMsg() {
-        const input = document.getElementById('msgInput');
-        const text = input.value.trim();
-        if(!text) return;
-        input.value = '';
-        
-        let tempId = 'temp_' + Date.now();
-        appendMessage({ id: tempId, senderId: state.user.id, content: text, type: 'text', timestamp: new Date().toISOString(), status: 'sending' });
-        
-        const res = await api('sendMessage', { chatId: state.activeChat.id, userId: state.user.id, content: text, type: 'text' }, true);
-        updateMsgStatus(tempId, res.status === 'success' ? 'sent' : 'failed');
-    }
-
-    // 發送媒體
-    function handleMediaSelect(input) {
-        if(input.files && input.files[0]) {
-            const file = input.files[0];
-            const type = file.type.startsWith('video/') ? 'video' : 'image';
-            showToast(`${type==='video'?'影片':'圖片'}處理中...`);
-            
-            processMedia(file, type, async (base64) => {
-                let tempId = 'temp_' + Date.now();
-                appendMessage({ id: tempId, senderId: state.user.id, content: base64, type: type, timestamp: new Date().toISOString(), status: 'sending' });
-                const res = await api('sendMessage', { chatId: state.activeChat.id, userId: state.user.id, fileBase64: base64, fileName: file.name, type: type }, true);
-                updateMsgStatus(tempId, res.status === 'success' ? 'sent' : 'failed');
-            });
-        }
-    }
-
-    // 錄音功能
-    let recordInterval;
-    async function toggleRecord() {
-        if(mediaRecorder && mediaRecorder.state === 'recording') {
-            cancelRecord(); return;
-        }
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
-            audioChunks = [];
-            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-            
-            document.getElementById('audioPreview').classList.remove('hidden');
-            document.getElementById('micBtn').classList.add('text-red-500');
-            
-            let secs = 0;
-            recordInterval = setInterval(() => {
-                secs++;
-                document.getElementById('recordTime').innerText = `00:${secs<10?'0'+secs:secs}`;
-                if(secs >= 60) stopAndSendRecord(); // 最長一分鐘
-            }, 1000);
-
-            mediaRecorder.start();
-        } catch(e) {
-            showToast("無法存取麥克風權限", "error");
-        }
-    }
-
-    function cancelRecord() {
-        if(mediaRecorder) { mediaRecorder.stop(); mediaRecorder.stream.getTracks().forEach(t=>t.stop()); }
-        clearInterval(recordInterval);
-        document.getElementById('audioPreview').classList.add('hidden');
-        document.getElementById('micBtn').classList.remove('text-red-500');
-    }
-
-    function stopAndSendRecord() {
-        if(!mediaRecorder || mediaRecorder.state !== 'recording') return;
-        clearInterval(recordInterval);
-        
-        mediaRecorder.onstop = () => {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            processMedia(new File([audioBlob], 'audio.webm', {type: 'audio/webm'}), 'audio', async (base64) => {
-                let tempId = 'temp_' + Date.now();
-                appendMessage({ id: tempId, senderId: state.user.id, content: base64, type: 'audio', timestamp: new Date().toISOString(), status: 'sending' });
-                const res = await api('sendMessage', { chatId: state.activeChat.id, userId: state.user.id, fileBase64: base64, fileName: 'audio.webm', type: 'audio' }, true);
-                updateMsgStatus(tempId, res.status === 'success' ? 'sent' : 'failed');
-            });
-            document.getElementById('audioPreview').classList.add('hidden');
-            document.getElementById('micBtn').classList.remove('text-red-500');
-        };
-        mediaRecorder.stop();
-        mediaRecorder.stream.getTracks().forEach(t=>t.stop());
-    }
-
-    // 訊息 UI 渲染
-    function appendMessage(msg) {
-        if(document.getElementById(msg.id)) return; // 避免重複
-        const area = document.getElementById('messagesArea');
-        const isMe = msg.senderId === state.user.id;
-        const uInfo = getUserInfo(msg.senderId);
-        
-        const div = document.createElement('div');
-        div.id = msg.id;
-        div.className = `flex gap-2 max-w-[85%] ${isMe ? 'self-end flex-row-reverse' : 'self-start'}`;
-        
-        let contentHtml = '';
-        if (msg.type === 'image') contentHtml = `<img src="${msg.content}" onclick="window.open(this.src)" class="cursor-pointer shadow-sm">`;
-        else if (msg.type === 'video') contentHtml = `<video src="${msg.content}" controls class="shadow-sm"></video>`;
-        else if (msg.type === 'audio') contentHtml = `<audio src="${msg.content}" controls></audio>`;
-        else contentHtml = `<p class="whitespace-pre-wrap text-[15px] leading-relaxed">${msg.content.replace(/</g, "&lt;")}</p>`;
-
-        // 已讀狀態與時間
-        let statusHtml = '';
-        if(isMe) {
-            if(msg.status === 'sending') statusHtml = `<span class="text-[10px] text-gray-400 block mt-1 text-right">傳送中...</span>`;
-            else if(msg.status === 'failed') statusHtml = `<span class="text-[10px] text-red-500 block mt-1 text-right">失敗</span>`;
-            else {
-                let readersHtml = '';
-                if(msg.readBy && msg.readBy.length > 1) { // 包含自己所以 > 1
-                    let readUsers = msg.readBy.filter(id => id !== state.user.id).slice(0, 20); // 最多顯示20人
-                    readersHtml = readUsers.map(id => `<img src="${getUserInfo(id).avatar}" class="w-3 h-3 rounded-full inline-block -ml-1 border border-white" title="${getUserInfo(id).nickname} 已讀">`).join('');
-                }
-                statusHtml = `<span class="text-[10px] text-gray-500 block mt-1 flex justify-end items-center gap-1">${new Date(msg.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})} ${readersHtml}</span>`;
-            }
-        } else {
-            statusHtml = `<span class="text-[10px] text-gray-500 block mt-1">${new Date(msg.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>`;
-        }
-
-        div.innerHTML = `
-            ${!isMe ? `<img src="${uInfo.avatar}" class="w-8 h-8 rounded-full object-cover shadow-sm cursor-pointer mt-1" onclick="switchView('profile',{userId:'${msg.senderId}'})">` : ''}
-            <div class="flex flex-col">
-                ${!isMe && state.activeChat.type === 'group' ? `<span class="text-[11px] text-gray-500 ml-1 mb-0.5">${uInfo.nickname}</span>` : ''}
-                <div class="msg-bubble p-3 shadow-md ${isMe ? 'bg-primary text-white rounded-[20px] rounded-tr-sm' : 'glass text-black dark:text-white rounded-[20px] rounded-tl-sm'}">
-                    ${contentHtml}
-                </div>
-                ${statusHtml}
-            </div>
-        `;
-        
-        area.appendChild(div);
-        setTimeout(() => area.scrollTop = area.scrollHeight, 50); // 確保圖拉完能捲到底
-    }
-
-    function updateMsgStatus(tempId, status) {
-        const div = document.getElementById(tempId);
-        if(div) {
-            // 由於依賴 polling 刷新真實狀態，這裡只做失敗提示，成功的會被 polling 覆蓋
-            if(status === 'failed') div.querySelector('span').innerText = '傳送失敗';
-        }
-    }
-
-    // --- 超級輪詢 (Polling) ---
-    function startPolling() {
-        if(state.pollInterval) clearInterval(state.pollInterval);
-        
-        const poll = async () => {
-            if(!state.user) return clearInterval(state.pollInterval);
-            
-            // 隨機延遲避免線程塞車
-            await new Promise(r => setTimeout(r, Math.random() * 1000));
-
-            try {
-                const chatIds = state.chats.map(c => c.id);
-                const res = await api('masterPoll', {
-                    userId: state.user.id, 
-                    chatIds: chatIds, 
-                    lastSync: state.lastSync,
-                    activeChatId: state.activeChat?.id
-                }, true); // background request
-
-                if(res.status === 'success') {
-                    state.lastSync = res.timestamp;
-                    state.onlineUsers = res.onlineUsers;
-
-                    // 處理新訊息
-                    res.messages.forEach(msg => {
-                        // 嘗試從本地快取找頭像
-                        if(!state.usersCache[msg.senderId]) api('getProfile', {targetId: msg.senderId, userId: state.user.id}, true).then(r => {if(r.status==='success') state.usersCache[msg.senderId]=r.data;});
-
-                        if (state.currentView === 'chatroom' && state.activeChat?.id === msg.chatId) {
-                            if(!document.getElementById(msg.id)) appendMessage(msg);
-                            if(msg.senderId !== state.user.id) api('markAsRead', {chatId: msg.chatId, userId: state.user.id}, true);
-                        } else if (msg.senderId !== state.user.id) {
-                            showToast(`新訊息: ${msg.type==='text'?msg.content:'[媒體]'}`, 'info');
-                        }
-                    });
-
-                    // 處理輸入中狀態
-                    if(state.currentView === 'chatroom') {
-                        const tInd = document.getElementById('typingIndicator');
-                        if(Object.keys(res.typingStatus).length > 0) {
-                            tInd.innerText = Object.keys(res.typingStatus).map(id=>getUserInfo(id).nickname).join(', ') + ' 正在輸入...';
-                            tInd.classList.remove('opacity-0');
-                        } else {
-                            tInd.classList.add('opacity-0');
-                        }
-                    }
-
-                    // 處理 Badge
-                    const nBadge = document.getElementById('navNotifBadge');
-                    const cBadge = document.getElementById('navMsgBadge');
-                    if(nBadge) nBadge.classList.toggle('hidden', res.unreadNotif + res.pendingRequests === 0);
-                    // ChatList Badge (簡化，實際應由 getChats 更新，這裡用新訊息觸發)
-                    if(cBadge) cBadge.classList.toggle('hidden', res.messages.length === 0 && !cBadge.classList.contains('hidden'));
-                }
-            } catch (e) { console.warn("Poll err:", e); }
-        };
-
-        state.pollInterval = setInterval(poll, 4000); // 每4秒一次主輪詢
-    }
-
-    // --- 啟動 ---
-    window.onload = () => {
-        if (CacheManager.get('user')) {
-            state.user = CacheManager.get('user');
-            if(state.user.theme === 'light') document.documentElement.classList.remove('dark');
-            switchView('home'); startPolling();
-        } else { switchView('login'); }
-    };
-    function logout() {
-        CacheManager.clear(); state.user = null; clearInterval(state.pollInterval); switchView('login');
-    }
-</script>
-</body>
-                </html>
+</html>
