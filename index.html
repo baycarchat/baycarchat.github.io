@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>BaycarChat</title>
+
+<style>
+body{
+  margin:0;
+  font-family:sans-serif;
+  background:#0d0d0d;
+  color:white;
+}
+
+.topbar{
+  display:flex;
+  justify-content:space-between;
+  padding:10px;
+}
+
+.glassbar{
+  position:fixed;
+  bottom:10px;
+  left:50%;
+  transform:translateX(-50%);
+  width:90%;
+  height:60px;
+  background:rgba(255,255,255,0.1);
+  backdrop-filter:blur(20px);
+  border-radius:40px;
+  display:flex;
+  justify-content:space-around;
+  align-items:center;
+}
+
+.avatar{
+  width:40px;
+  height:40px;
+  border-radius:50%;
+  object-fit:cover;
+}
+
+.online{border:2px solid lime;}
+.offline{border:2px solid gray;}
+
+.msg{
+  display:flex;
+  gap:10px;
+  margin:5px;
+}
+
+.typing{
+  font-size:12px;
+  opacity:0.6;
+}
+</style>
+</head>
+
+<body>
+
+<div class="topbar">
+  <div id="logo">BaycarChat</div>
+  <div>
+    🔔 <span id="notiCount"></span>
+    ⚠️
+  </div>
+</div>
+
+<div id="app"></div>
+
+<div class="glassbar">
+  <div onclick="nav('home')">🏠</div>
+  <div onclick="nav('search')">🔍</div>
+  <div onclick="nav('chat')">💬</div>
+  <div onclick="nav('profile')">👤</div>
+</div>
+
+<script>
+const API = "https://script.google.com/macros/s/AKfycbxtkiz5pG07tmI2iNaVfdKhHwHCadn677LFf8bM6-k2YeBKPyR4hW8Hq2M6ZlqrlIXMgQ/exec";
+
+let user = JSON.parse(localStorage.getItem("user"));
+let last = 0;
+let currentChat = null;
+
+// =========================
+// NAV
+// =========================
+function nav(p){
+  if(p==="home") loadHome();
+  if(p==="search") loadSearch();
+  if(p==="chat") loadChatList();
+  if(p==="profile") loadProfile();
+}
+
+// =========================
+// HOME（推薦用戶修正）
+// =========================
+async function loadHome(){
+  let cache = localStorage.getItem("home");
+  if(cache){
+    renderUsers(JSON.parse(cache));
+  }
+
+  const res = await post("home",{});
+  localStorage.setItem("home",JSON.stringify(res));
+  renderUsers(res);
+}
+
+function renderUsers(list){
+  let html="";
+  list.forEach(u=>{
+    html+=`
+      <div onclick="openProfile('${u.id}')">
+        <img class="avatar ${u.status==='online'?'online':'offline'}" src="${u.avatar||''}">
+        ${u.nickname}
+      </div>
+    `;
+  });
+  app.innerHTML = html;
+}
+
+// =========================
+// SEARCH
+// =========================
+async function loadSearch(){
+  app.innerHTML = `
+    <input oninput="doSearch(this.value)" placeholder="搜尋">
+    <div id="result"></div>
+  `;
+}
+
+async function doSearch(q){
+  const res = await post("search",{q});
+  result.innerHTML = res.map(u=>u.nickname).join("<br>");
+}
+
+// =========================
+// CHAT
+// =========================
+async function loadChat(chatId){
+  currentChat = chatId;
+
+  setInterval(poll,5000);
+
+  app.innerHTML = `<div id="msgs"></div>
+  <input id="input">
+  <button onclick="send()">送出</button>`;
+}
+
+async function send(){
+  const text = input.value;
+
+  await post("sendMsg",{
+    chatId:currentChat,
+    sender:user.id,
+    content:text,
+    type:"text"
+  });
+
+  input.value="";
+}
+
+async function poll(){
+  const res = await post("poll",{
+    chatId:currentChat,
+    last,
+    user:user.id
+  });
+
+  res.messages.forEach(m=>{
+    msgs.innerHTML += `
+      <div class="msg">
+        <img class="avatar" src="">
+        <div>${m.content}</div>
+      </div>
+    `;
+    last = m.time;
+  });
+
+  if(res.typing.length){
+    msgs.innerHTML += `<div class="typing">對方輸入中...</div>`;
+  }
+
+  notiCount.innerText = res.notifications.length;
+}
+
+// =========================
+// PROFILE
+// =========================
+function loadProfile(){
+  app.innerHTML = `
+    <h2>${user.nickname}</h2>
+    <button onclick="logout()">登出</button>
+  `;
+}
+
+// =========================
+// UTIL
+// =========================
+async function post(action,data){
+  const res = await fetch(API,{
+    method:"POST",
+    body:JSON.stringify({...data,action})
+  });
+  return res.json();
+}
+
+function logout(){
+  localStorage.clear();
+  location.reload();
+}
+
+// =========================
+// INIT
+// =========================
+if(!user){
+  app.innerHTML = `
+    <input id="acc">
+    <input id="pw" type="password">
+    <button onclick="login()">登入</button>
+  `;
+}else{
+  nav("home");
+}
+
+async function login(){
+  const res = await post("login",{
+    account:acc.value,
+    password:pw.value
+  });
+
+  if(res.ok){
+    localStorage.setItem("user",JSON.stringify(res.user));
+    location.reload();
+  }
+}
+</script>
+
+</body>
+</html>
+
