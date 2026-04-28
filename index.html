@@ -1,190 +1,240 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BaycarChat PRO</title>
+<meta charset="UTF-8">
+<title>BaycarChat</title>
 
 <style>
-:root{
-  --bg:#0f0f0f;
-  --glass:rgba(255,255,255,0.08);
-}
-
 body{
   margin:0;
-  background:var(--bg);
-  color:#fff;
   font-family:sans-serif;
+  background:#0d0d0d;
+  color:white;
 }
 
-#app{display:flex;flex-direction:column;height:100vh}
-
-#chat{flex:1;overflow:auto;padding:10px}
-
-.msg{
-  padding:10px;
-  border-radius:12px;
-  margin:5px;
-  background:#1e1e1e;
-}
-
-.me{background:#2a6df5}
-
-#bar{
+.topbar{
   display:flex;
+  justify-content:space-between;
   padding:10px;
-  backdrop-filter:blur(20px);
-  background:var(--glass);
 }
 
-input{flex:1;padding:10px}
-
-.nav{
+.glassbar{
+  position:fixed;
+  bottom:10px;
+  left:50%;
+  transform:translateX(-50%);
+  width:90%;
+  height:60px;
+  background:rgba(255,255,255,0.1);
+  backdrop-filter:blur(20px);
+  border-radius:40px;
   display:flex;
   justify-content:space-around;
-  padding:10px;
-  backdrop-filter:blur(20px);
-  background:var(--glass);
+  align-items:center;
+}
+
+.avatar{
+  width:40px;
+  height:40px;
+  border-radius:50%;
+  object-fit:cover;
+}
+
+.online{border:2px solid lime;}
+.offline{border:2px solid gray;}
+
+.msg{
+  display:flex;
+  gap:10px;
+  margin:5px;
+}
+
+.typing{
+  font-size:12px;
+  opacity:0.6;
 }
 </style>
 </head>
 
 <body>
-<div id="app">
 
-<div id="chat"></div>
-
-<div id="bar">
-  <input id="msg">
-  <button onclick="send()">送</button>
-  <button onclick="upload()">📷</button>
-  <button onclick="record()">🎤</button>
+<div class="topbar">
+  <div id="logo">BaycarChat</div>
+  <div>
+    🔔 <span id="notiCount"></span>
+    ⚠️
+  </div>
 </div>
 
-<div class="nav">
-  <div onclick="page('chat')">💬</div>
-  <div onclick="page('notify')">🔔</div>
-  <div onclick="page('home')">🏠</div>
-  <div onclick="page('me')">👤</div>
-</div>
+<div id="app"></div>
 
+<div class="glassbar">
+  <div onclick="nav('home')">🏠</div>
+  <div onclick="nav('search')">🔍</div>
+  <div onclick="nav('chat')">💬</div>
+  <div onclick="nav('profile')">👤</div>
 </div>
 
 <script>
-const API="https://script.google.com/macros/s/AKfycbzCmufxZUmQMOYRb76OO5XggYHejV0mD2VIi-ohsG4i-JXmLJ7FxJwQKyDeDFwfgyQ4lQ/exec";
+const API = "https://script.google.com/macros/s/AKfycbxtkiz5pG07tmI2iNaVfdKhHwHCadn677LFf8bM6-k2YeBKPyR4hW8Hq2M6ZlqrlIXMgQ/exec";
 
-let user=localStorage.user || ("U"+Date.now());
-localStorage.user=user;
+let user = JSON.parse(localStorage.getItem("user"));
+let last = 0;
+let currentChat = null;
 
-let last=0;
-
-// API
-async function api(d){
-  return fetch(API,{
-    method:"POST",
-    body:JSON.stringify(d)
-  }).then(r=>r.json());
+// =========================
+// NAV
+// =========================
+function nav(p){
+  if(p==="home") loadHome();
+  if(p==="search") loadSearch();
+  if(p==="chat") loadChatList();
+  if(p==="profile") loadProfile();
 }
 
-// 發送
-async function send(){
-  const t=msg.value;
-  const r=await api({a:"send",from:user,to:"global",content:t,type:"text"});
-  last=r.id;
-  msg.value="";
-}
-
-// Poll（增量）
-async function poll(){
-  const r=await api({a:"poll",last:last});
-
-  r.msg.forEach(m=>{
-    render(m);
-    last=m[0];
-  });
-}
-
-// render
-function render(m){
-  const d=document.createElement("div");
-  d.className="msg"+(m[1]==user?" me":"");
-
-  if(m[4]=="img"){
-    d.innerHTML=`<img src="${m[3]}" width="150">`;
-  }else if(m[4]=="audio"){
-    d.innerHTML=`<audio controls src="${m[3]}"></audio>`;
-  }else{
-    d.innerText=m[1]+": "+m[3];
+// =========================
+// HOME（推薦用戶修正）
+// =========================
+async function loadHome(){
+  let cache = localStorage.getItem("home");
+  if(cache){
+    renderUsers(JSON.parse(cache));
   }
 
-  chat.appendChild(d);
+  const res = await post("home",{});
+  localStorage.setItem("home",JSON.stringify(res));
+  renderUsers(res);
 }
 
-// 圖片
-async function upload(){
-  const i=document.createElement("input");
-  i.type="file";
-  i.onchange=async()=>{
-    const f=i.files[0];
-    const b64=await toBase64(f);
-
-    const u=await api({
-      a:"upload",
-      b64:b64.split(",")[1],
-      type:f.type,
-      name:f.name
-    });
-
-    await api({a:"send",from:user,to:"global",content:u.url,type:"img"});
-  };
-  i.click();
-}
-
-// 錄音
-let rec,chunks=[];
-async function record(){
-  const s=await navigator.mediaDevices.getUserMedia({audio:true});
-  rec=new MediaRecorder(s);
-
-  rec.ondataavailable=e=>chunks.push(e.data);
-  rec.onstop=async()=>{
-    const blob=new Blob(chunks);
-    const b64=await toBase64(blob);
-
-    const u=await api({
-      a:"upload",
-      b64:b64.split(",")[1],
-      type:"audio/webm",
-      name:"rec.webm"
-    });
-
-    await api({a:"send",from:user,to:"global",content:u.url,type:"audio"});
-    chunks=[];
-  };
-
-  rec.start();
-  setTimeout(()=>rec.stop(),60000);
-}
-
-// base64
-function toBase64(f){
-  return new Promise(r=>{
-    const fr=new FileReader();
-    fr.onload=()=>r(fr.result);
-    fr.readAsDataURL(f);
+function renderUsers(list){
+  let html="";
+  list.forEach(u=>{
+    html+=`
+      <div onclick="openProfile('${u.id}')">
+        <img class="avatar ${u.status==='online'?'online':'offline'}" src="${u.avatar||''}">
+        ${u.nickname}
+      </div>
+    `;
   });
+  app.innerHTML = html;
 }
 
-// 主題
-function theme(c){
-  document.documentElement.style.setProperty("--bg",c);
+// =========================
+// SEARCH
+// =========================
+async function loadSearch(){
+  app.innerHTML = `
+    <input oninput="doSearch(this.value)" placeholder="搜尋">
+    <div id="result"></div>
+  `;
 }
 
-// 輪詢
-setInterval(poll,3000);
-setInterval(()=>api({a:"online",user:user}),5000);
+async function doSearch(q){
+  const res = await post("search",{q});
+  result.innerHTML = res.map(u=>u.nickname).join("<br>");
+}
 
+// =========================
+// CHAT
+// =========================
+async function loadChat(chatId){
+  currentChat = chatId;
+
+  setInterval(poll,5000);
+
+  app.innerHTML = `<div id="msgs"></div>
+  <input id="input">
+  <button onclick="send()">送出</button>`;
+}
+
+async function send(){
+  const text = input.value;
+
+  await post("sendMsg",{
+    chatId:currentChat,
+    sender:user.id,
+    content:text,
+    type:"text"
+  });
+
+  input.value="";
+}
+
+async function poll(){
+  const res = await post("poll",{
+    chatId:currentChat,
+    last,
+    user:user.id
+  });
+
+  res.messages.forEach(m=>{
+    msgs.innerHTML += `
+      <div class="msg">
+        <img class="avatar" src="">
+        <div>${m.content}</div>
+      </div>
+    `;
+    last = m.time;
+  });
+
+  if(res.typing.length){
+    msgs.innerHTML += `<div class="typing">對方輸入中...</div>`;
+  }
+
+  notiCount.innerText = res.notifications.length;
+}
+
+// =========================
+// PROFILE
+// =========================
+function loadProfile(){
+  app.innerHTML = `
+    <h2>${user.nickname}</h2>
+    <button onclick="logout()">登出</button>
+  `;
+}
+
+// =========================
+// UTIL
+// =========================
+async function post(action,data){
+  const res = await fetch(API,{
+    method:"POST",
+    body:JSON.stringify({...data,action})
+  });
+  return res.json();
+}
+
+function logout(){
+  localStorage.clear();
+  location.reload();
+}
+
+// =========================
+// INIT
+// =========================
+if(!user){
+  app.innerHTML = `
+    <input id="acc">
+    <input id="pw" type="password">
+    <button onclick="login()">登入</button>
+  `;
+}else{
+  nav("home");
+}
+
+async function login(){
+  const res = await post("login",{
+    account:acc.value,
+    password:pw.value
+  });
+
+  if(res.ok){
+    localStorage.setItem("user",JSON.stringify(res.user));
+    location.reload();
+  }
+}
 </script>
+
 </body>
 </html>
